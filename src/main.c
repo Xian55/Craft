@@ -34,6 +34,12 @@
 static bool hosting = false;
 #endif
 
+#ifndef CRAFT_VERSION
+#define CRAFT_VERSION "dev"
+#endif
+
+void win_console(int argc, char **argv);   // wincon.c (no-op off Windows/GUI)
+
 float cam_fov = 60.0f;                  // /fov chat command (state.h)
 
 static bool mouse_captured = false;
@@ -305,9 +311,11 @@ static int run_dedicated(int port) {
 int main(int argc, char **argv) {
   const char *host = NULL;
 #ifndef __EMSCRIPTEN__
+  win_console(argc, argv);
   bool dedicated = false;
   int port = getenv("PORT") ? atoi(getenv("PORT")) : 8080;
   for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--version") == 0) { printf("%s\n", CRAFT_VERSION); return 0; }
     if (strcmp(argv[i], "--server") == 0) dedicated = true;
     if (strcmp(argv[i], "--server-test") == 0) return server_selftest();
     if (strcmp(argv[i], "--serve") == 0 || strcmp(argv[i], "--host-game") == 0) hosting = true;
@@ -327,7 +335,7 @@ int main(int argc, char **argv) {
   if (dm) metrics_set(atoi(dm));
 
   SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
-  InitWindow(1280, 720, "Craft Survival (raylib)");
+  InitWindow(1280, 720, "Craft Survival " CRAFT_VERSION);
   SetExitKey(KEY_NULL);
 #ifndef __EMSCRIPTEN__
   // Out-of-tree builds: assets/ is copied next to the exe (CMake post-build).

@@ -1,0 +1,37 @@
+# Craft Survival server — example compose stack.
+#   cp docker-compose.example.yml docker-compose.yml && docker compose up -d
+# Serves the browser game AND the world sync on one port:
+#   http://<host>:8080/
+# The world lives in the craft_world volume (world.edits, players.json,
+# world.meta.json, chests.bin), saved every 10 s and on shutdown.
+name: craft
+services:
+  craft:
+    image: ghcr.io/xian55/craft:latest   # linux/amd64 + linux/arm64
+    container_name: craft
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - craft_world:/data
+    labels:
+      # only meaningful if you also run the watchtower service below
+      - com.centurylinklabs.watchtower.enable=true
+
+  # OPTIONAL auto-updates: uncomment to pull new releases automatically.
+  # Label-scoped: only containers with the watchtower.enable label above
+  # are touched — your other containers are left alone.
+  # watchtower:
+  #   image: containrrr/watchtower:latest
+  #   container_name: watchtower
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     - WATCHTOWER_LABEL_ENABLE=true
+  #     - WATCHTOWER_POLL_INTERVAL=300
+  #     - WATCHTOWER_CLEANUP=true
+  #     - DOCKER_API_VERSION=1.44   # needed on docker >= 26
+
+volumes:
+  craft_world:

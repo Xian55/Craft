@@ -14,12 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
+ARG CRAFT_VERSION=dev
 COPY CMakeLists.txt ./
 COPY src/ src/
 COPY tests/ tests/
 COPY assets/ assets/
 RUN --mount=type=cache,target=/src/build \
-    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCRAFT_VERSION="${CRAFT_VERSION}" \
     && cmake --build build -j"$(nproc)" --target craft \
     && cp build/craft /craft
 

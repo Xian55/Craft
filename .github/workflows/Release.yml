@@ -121,7 +121,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev
       - name: Build
         run: |
-          cmake -S . -B ../build-native -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B ../build-native -DCMAKE_BUILD_TYPE=Release -DCRAFT_VERSION="${{ needs.version.outputs.tag }}"
           cmake --build ../build-native -j"$(nproc)" --target craft copy_assets
       - name: Package
         run: |
@@ -147,7 +147,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Build (universal arm64 + x86_64)
         run: |
-          cmake -S . -B ../build-native -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake -S . -B ../build-native -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCRAFT_VERSION="${{ needs.version.outputs.tag }}"
           cmake --build ../build-native -j3
       - name: Tests (also proves terrain determinism on AppleClang/ARM)
         run: |
@@ -193,7 +193,7 @@ jobs:
           install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja git
       - name: Build
         run: |
-          cmake -S . -B ../build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B ../build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DCRAFT_VERSION="${{ needs.version.outputs.tag }}"
           cmake --build ../build-native -j
           cp ../build-native/craft.exe .
       - uses: actions/upload-artifact@v4
@@ -283,6 +283,8 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          build-args: |
+            CRAFT_VERSION=${{ needs.version.outputs.tag }}
           outputs: type=image,name=ghcr.io/xian55/craft,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
@@ -368,7 +370,9 @@ jobs:
           tar -xzf "$tarball"
           dir=$(find . -maxdepth 1 -name "Craft-Ubuntu-v*" -type d | head -1)
           "$dir/craft" --server-test
-          echo "OK: Linux binary runs the server self-test"
+          got=$("$dir/craft" --version)
+          test "$got" = "${{ needs.version.outputs.tag }}" || { echo "FAIL: --version says '$got', expected '${{ needs.version.outputs.tag }}'"; exit 1; }
+          echo "OK: Linux binary runs the self-test and reports $got"
 
   release:
     needs: [version, test, verify, docker-manifest]

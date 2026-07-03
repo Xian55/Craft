@@ -83,6 +83,9 @@ and the world sync on one port):
 docker run -d --name craft --restart unless-stopped -p 8080:8080 -v craft_world:/data ghcr.io/xian55/craft:latest
 ```
 
+Compose users: see `docker-compose.example.yml` (includes an optional
+label-scoped watchtower service for automatic updates on new releases).
+
 Easiest locally: run `serve.cmd` — it starts `craft.exe --server` with
 `STATIC=build-web`, so **one port (8080) serves both** the page and the world
 sync. Open `http://<host>:8080/` in a browser and play. Must be plain

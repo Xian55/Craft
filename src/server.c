@@ -44,6 +44,10 @@ typedef int sock_t;
 #define SAVE_EVERY_S 10.0
 #define JOIN_BATCH 16384
 
+#ifndef CRAFT_VERSION
+#define CRAFT_VERSION "dev"
+#endif
+
 // ============================== small utils ==============================
 static double now_s(void) {
 #ifdef _WIN32
@@ -891,7 +895,7 @@ bool server_start(int port, const char *sdir, const char *ddir) {
   set_nonblocking(listener);
   running = true;
   last_tick = now_s();
-  printf("Craft Survival server running on port %d (C, v2 binary). Stop: Ctrl+C\n", port);
+  printf("Craft Survival server %s running on port %d (C, v2 binary). Stop: Ctrl+C\n", CRAFT_VERSION, port);
   if (static_dir[0]) printf("Static dir served: %s -> http://localhost:%d/\n", static_dir, port);
   return true;
 }

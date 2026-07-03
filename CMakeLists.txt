@@ -14,6 +14,9 @@ FetchContent_Declare(raylib
   GIT_SHALLOW ON)
 FetchContent_MakeAvailable(raylib)
 
+# Baked-in semver: CI passes the release tag, local builds identify as dev.
+set(CRAFT_VERSION "dev" CACHE STRING "version string shown by --version, the server banner and the window title")
+
 add_executable(craft
   src/main.c
   src/gen.c
@@ -41,7 +44,7 @@ if (EMSCRIPTEN)
 else()
   # native gets the websocket transport AND the embedded server
   # (`craft --server` headless / `craft --serve` play-and-host)
-  target_sources(craft PRIVATE src/ws_native.c src/server.c)
+  target_sources(craft PRIVATE src/ws_native.c src/server.c src/wincon.c)
 endif()
 
 # Determinism: no FP contraction in the noise pipeline (must match JS doubles).
@@ -49,6 +52,16 @@ set_source_files_properties(src/gen.c PROPERTIES COMPILE_OPTIONS "-ffp-contract=
 
 target_include_directories(craft PRIVATE vendor src)
 target_link_libraries(craft raylib)
+target_compile_definitions(craft PRIVATE CRAFT_VERSION="${CRAFT_VERSION}")
+
+# Client mode should not drag a terminal window along on Windows. GUI
+# subsystem, but main.c re-attaches the parent console (so start_server.cmd,
+# CI and terminal runs keep their output) and --console can force one.
+option(CRAFT_WIN_GUI "Windows: GUI subsystem (no console window for the client)" ON)
+if (WIN32 AND CRAFT_WIN_GUI AND NOT EMSCRIPTEN)
+  target_link_options(craft PRIVATE -mwindows)
+  target_compile_definitions(craft PRIVATE CRAFT_GUI_SUBSYSTEM)
+endif()
 
 if (NOT EMSCRIPTEN)
   # ship assets next to the exe so out-of-tree builds are self-contained.
