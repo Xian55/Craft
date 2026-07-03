@@ -5,8 +5,24 @@ name: Build Craft
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.claude/**'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.env.example'
+      - 'docker-compose.example.yml'
+      - 'LICENSE'
   push:
     branches-ignore: [main]
+    paths-ignore:
+      - '**.md'
+      - '.claude/**'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.env.example'
+      - 'docker-compose.example.yml'
+      - 'LICENSE'
   workflow_dispatch:
 
 jobs:

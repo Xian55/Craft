@@ -5,6 +5,16 @@ name: Release
 on:
   push:
     branches: [main]
+    # docs/meta-only changes don't ship a release. GitVersion.yml stays a
+    # trigger on purpose: editing the floor is how a major/minor is cut.
+    paths-ignore:
+      - '**.md'
+      - '.claude/**'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.env.example'
+      - 'docker-compose.example.yml'
+      - 'LICENSE'
   workflow_dispatch:
     inputs:
       version:
