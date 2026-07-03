@@ -241,6 +241,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: build
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false   # .dockerbuild artifacts broke the release download
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -303,6 +305,7 @@ jobs:
           exit 1
       - uses: actions/download-artifact@v4
         with:
+          pattern: Craft-*
           path: artifacts
       - name: Verify artifacts exist
         run: |
@@ -341,6 +344,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
+          pattern: Craft-*
           path: artifacts
       - name: Collect release assets and generate checksums
         run: |
