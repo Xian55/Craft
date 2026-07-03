@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Craft Survival (raylib/wasm)</title>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a1a2a; }
+    canvas.emscripten { display: block; width: 100vw; height: 100vh; outline: none; }
+    #status { position: fixed; top: 8px; left: 8px; color: #ddd; font: 14px sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="status">Loading…</div>
+  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+  <script>
+    var Module = {
+      canvas: (function () { return document.getElementById('canvas'); })(),
+      setStatus: function (t) { document.getElementById('status').textContent = t || ''; },
+    };
+    // Keep game keys away from the browser: F3 is "find on page" in
+    // Edge/Chrome and would never reach the game. preventDefault only —
+    // the event still propagates to GLFW's handler.
+    window.addEventListener('keydown', function (e) {
+      if (e.key === 'F3') e.preventDefault();
+    }, true);
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

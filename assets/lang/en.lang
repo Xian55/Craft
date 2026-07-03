@@ -1,0 +1,52 @@
+# Craft Survival - English (default)
+# Format: key=value, '#' starts a comment. Keep printf specifiers intact.
+
+item.grass=Grass
+item.dirt=Dirt
+item.stone=Stone
+item.wood=Wood Log
+item.leaves=Leaves
+item.sand=Sand
+item.planks=Planks
+item.cobble=Cobblestone
+item.stone_brick=Stone Bricks
+item.brick=Bricks
+item.torch=Torch
+item.chest=Chest
+item.tnt=TNT
+item.shovel=Shovel
+item.pickaxe=Pickaxe
+item.sword=Sword
+item.bucket=Bucket
+item.water_bucket=Water Bucket
+item.pork=Porkchop
+item.stick=Stick
+item.lava_bucket=Lava Bucket
+
+hud.held=In hand: %s (x%d)
+hud.held_empty=In hand: - (empty slot)
+hint.click=Click: play | WASD move, Space jump, E bag, T chat, F eat, Q drop
+
+panel.chest=Chest
+panel.bag=Bag
+panel.craft=Crafting (3x3)
+panel.hint=Left click: whole stack. Right click: half/one. Close: E
+
+cmd.help=Commands: /give /place /tp /heal /speed /pig /time /rd /fov /creative /survival /lang /metrics
+cmd.no_item=No such item: %s
+cmd.tp=Teleport: %s %s %s
+cmd.heal=Health and hunger restored
+cmd.speed=Speed: %g
+cmd.pig=Pig(s) spawned
+cmd.mob=%d mob(s) spawned
+cmd.creative=Creative mode ON - double-tap Space: fly
+cmd.survival=Survival mode
+cmd.time=Time set: %.2f
+cmd.rd=Render distance: %d chunks
+cmd.fov=FOV: %g
+cmd.no_block=No such block: %s
+cmd.place=%s placed at: %d %d %d
+cmd.unknown=Unknown command: %s - type /help
+cmd.lang=Language: %s
+cmd.lang_missing=No such language: %s
+chat.you=You

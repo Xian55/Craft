@@ -1,0 +1,52 @@
+# Craft Survival - magyar (ASCII-folded: raylib default font has no accents)
+# Format: key=value, '#' starts a comment. Keep printf specifiers intact.
+
+item.grass=Fu
+item.dirt=Fold
+item.stone=Nyers ko
+item.wood=Fatorzs
+item.leaves=Level
+item.sand=Homok
+item.planks=Deszka
+item.cobble=Ko
+item.stone_brick=Kotegla
+item.brick=Tegla
+item.torch=Faklya
+item.chest=Lada
+item.tnt=TNT
+item.shovel=Lapat
+item.pickaxe=Csakany
+item.sword=Kard
+item.bucket=Vodor
+item.water_bucket=Vizes vodor
+item.pork=Hus
+item.stick=Bot
+item.lava_bucket=Lavas vodor
+
+hud.held=Kezben: %s (%d db)
+hud.held_empty=Kezben: - (ures rekesz)
+hint.click=Katt: jatek | WASD mozgas, Szokoz ugras, E taska, T chat, F eves, Q eldobas
+
+panel.chest=Lada
+panel.bag=Taska
+panel.craft=Barkacsolas (3x3)
+panel.hint=Bal katt: egesz kupac. Jobb katt: felezes/egyesevel. Bezaras: E
+
+cmd.help=Parancsok: /give /place /tp /heal /speed /pig /time /rd /fov /creative /survival /lang /metrics
+cmd.no_item=Nincs ilyen targy: %s
+cmd.tp=Teleport: %s %s %s
+cmd.heal=Elet es ehseg feltoltve
+cmd.speed=Sebesseg: %g
+cmd.pig=Malac(ok) spawnolva
+cmd.mob=%d szorny spawnolva
+cmd.creative=Kreativ mod BE - dupla Szokoz: repules
+cmd.survival=Tulelo mod
+cmd.time=Ido beallitva: %.2f
+cmd.rd=Latotav: %d chunk
+cmd.fov=Latoszog: %g
+cmd.no_block=Nincs ilyen blokk: %s
+cmd.place=%s lerakva: %d %d %d
+cmd.unknown=Ismeretlen parancs: %s - ird: /help
+cmd.lang=Nyelv: %s
+cmd.lang_missing=Nincs ilyen nyelv: %s
+chat.you=Te

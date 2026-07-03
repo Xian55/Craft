@@ -1,0 +1,14 @@
+# cmd.exe misparses LF-only batch files (phantom "'x' is not recognized"
+# errors) — keep them CRLF no matter the checkout platform.
+*.cmd text eol=crlf
+
+* text=auto
+*.c   text
+*.h   text
+*.js  text
+*.mjs text
+*.md  text
+*.lang text
+*.html text
+
+*.png binary

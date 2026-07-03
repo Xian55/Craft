@@ -1,0 +1,23 @@
+# Local deployment config (template: .env.example)
+.env
+
+# Server persistence (generated at runtime in CRAFT_DATA)
+world.edits
+players.json
+world.meta.json
+world.json
+world.json.bak
+chests.bin
+*.tmp
+
+# Client runtime files (written to launch cwd / next to exe)
+uid.txt
+lang.txt
+craft_shot.png
+
+# Determinism-gate scratch output
+ref.txt
+c.txt
+
+# Build artifacts normally live out of tree (..\craft_raylib_build), but just in case
+build/
