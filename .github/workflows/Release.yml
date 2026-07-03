@@ -1,0 +1,267 @@
+name: Release
+
+# Every change landing on main ships a release (direct push or PR merge),
+# with an auto-incremented semver tag. Template: Xian55/HermesProxy.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag override (e.g. v1.2.3). Leave empty for auto-increment.'
+        required: false
+        type: string
+
+# Serialize release runs so a second merge while the first is still building
+# can't race the "Compute next version" step. cancel-in-progress stays false:
+# never interrupt a release mid-upload. Each queued run recomputes the next
+# tag, so back-to-back merges produce consecutive patches.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: next
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            tag="${{ inputs.version }}"
+            echo "Using manual version: $tag"
+          else
+            # Highest existing v*.*.* tag repo-wide (not just first reachable).
+            latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+            latest="${latest:-v0.0.0}"
+            version="${latest#v}"
+            major="${version%%.*}"
+            rest="${version#*.}"
+            minor="${rest%%.*}"
+            patch="${rest#*.}"
+            auto_bump="${major}.${minor}.$((patch + 1))"
+
+            # GitVersion.yml's next-version acts as a floor: major/minor bumps
+            # are a one-line edit instead of a throwaway tag push.
+            floor=$(grep -E "^\s*next-version:" GitVersion.yml 2>/dev/null \
+                    | sed -E "s/.*next-version:\s*['\"]?([0-9]+\.[0-9]+\.[0-9]+)['\"]?.*/\1/" \
+                    | head -1)
+            floor="${floor:-0.0.0}"
+            winner=$(printf "%s\n%s\n" "$auto_bump" "$floor" | sort -V | tail -1)
+            tag="v${winner}"
+            echo "Latest tag: $latest -> auto=$auto_bump, floor(GitVersion.yml)=$floor -> $tag"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: System deps (raylib)
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev
+      - name: Build
+        run: |
+          cmake -S . -B ../build-native -DCMAKE_BUILD_TYPE=Release
+          cmake --build ../build-native -j"$(nproc)"
+      - name: Tests
+        run: |
+          B=../build-native
+          bun tools/terrain_ref.mjs > ref.txt
+          "$B/gen_test" > c.txt
+          diff ref.txt c.txt          # terrain determinism gate
+          "$B/phys_test"
+          "$B/sim_test"
+          "$B/net_test"
+          "$B/craft" --server-test
+      - name: E2E (wire spec against craft --server)
+        run: |
+          mkdir -p ../craft_raylib_build/native
+          cp ../build-native/craft ../craft_raylib_build/native/craft
+          bun tools/e2e_net.mjs
+
+  build-web:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+      - name: Build
+        run: |
+          emcmake cmake -S . -B ../build-web -DCMAKE_BUILD_TYPE=Release -DPLATFORM=Web
+          cmake --build ../build-web -j"$(nproc)"
+      - name: Package
+        run: |
+          tag="${{ needs.version.outputs.tag }}"
+          mkdir "Craft-Web-$tag"
+          cp ../build-web/craft.html ../build-web/craft.js ../build-web/craft.wasm ../build-web/craft.data "Craft-Web-$tag/"
+          zip -r "Craft-Web-$tag.zip" "Craft-Web-$tag"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Craft-Web-${{ needs.version.outputs.tag }}
+          path: Craft-Web-${{ needs.version.outputs.tag }}.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  build-linux:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System deps (raylib)
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev
+      - name: Build
+        run: |
+          cmake -S . -B ../build-native -DCMAKE_BUILD_TYPE=Release
+          cmake --build ../build-native -j"$(nproc)" --target craft copy_assets
+      - name: Package
+        run: |
+          tag="${{ needs.version.outputs.tag }}"
+          mkdir "Craft-Ubuntu-$tag"
+          cp ../build-native/craft "Craft-Ubuntu-$tag/"
+          cp -r assets "Craft-Ubuntu-$tag/assets"
+          chmod a+x "Craft-Ubuntu-$tag/craft"
+          tar -czf "Craft-Ubuntu-$tag.tar.gz" "Craft-Ubuntu-$tag"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Craft-Ubuntu-${{ needs.version.outputs.tag }}
+          path: Craft-Ubuntu-${{ needs.version.outputs.tag }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  build-windows:
+    needs: [version, build-web]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja git
+      - name: Build
+        run: |
+          cmake -S . -B ../build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build ../build-native -j
+      - uses: actions/download-artifact@v4
+        with:
+          name: Craft-Web-${{ needs.version.outputs.tag }}
+      - name: Package (game + server + web client, one exe)
+        shell: pwsh
+        run: |
+          $tag = "${{ needs.version.outputs.tag }}"
+          $stage = "Craft-Windows-$tag"
+          New-Item -ItemType Directory -Force "$stage/web" | Out-Null
+          Copy-Item ../build-native/craft.exe "$stage/"
+          Copy-Item -Recurse assets "$stage/assets"
+          Expand-Archive "Craft-Web-$tag.zip" -DestinationPath tmp-web
+          Copy-Item tmp-web/*/* "$stage/web/"
+          Set-Content "$stage/start_server.cmd" "@echo off`r`ncd /d `"%~dp0`"`r`nset `"STATIC=%~dp0web`"`r`ncraft.exe --server`r`n"
+          $readme = "Craft Survival - game + server in one exe`r`n`r`n" +
+            "PLAY:  run craft.exe          (joins localhost, or: craft.exe --host SERVER-IP)`r`n" +
+            "HOST:  run start_server.cmd   (allow it through the Windows firewall when asked)`r`n" +
+            "       then everyone opens http://YOUR-IP:8080/ in a browser`r`n" +
+            "BOTH:  craft.exe --serve      (play and host at the same time)`r`n`r`n" +
+            "Must be plain http, not https - the game uses ws:// on the same port.`r`n" +
+            "The world saves itself next to the exe every 10 seconds.`r`n"
+          Set-Content "$stage/README.txt" $readme
+          Compress-Archive -Path "$stage" -DestinationPath "$stage.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Craft-Windows-${{ needs.version.outputs.tag }}
+          path: Craft-Windows-${{ needs.version.outputs.tag }}.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  verify:
+    needs: [version, test, build-web, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check test result
+        if: needs.test.result != 'success'
+        run: |
+          echo "Tests failed - aborting release"
+          exit 1
+      - name: Check build results
+        if: needs.build-web.result != 'success' || needs.build-linux.result != 'success' || needs.build-windows.result != 'success'
+        run: |
+          echo "A build failed - aborting release"
+          exit 1
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Verify artifacts exist
+        run: |
+          echo "=== Downloaded artifacts ==="
+          find artifacts -type f | sort
+          for platform in "Windows-v" "Ubuntu-v" "Web-v"; do
+            f=$(find artifacts -name "Craft-${platform}*" -type f | head -1)
+            if [ -z "$f" ]; then
+              echo "FAIL: Missing artifact for $platform"
+              exit 1
+            fi
+            size=$(stat --printf="%s" "$f")
+            echo "OK: $f (${size} bytes)"
+            if [ "$size" -lt 100000 ]; then
+              echo "FAIL: Artifact too small - likely empty or corrupt"
+              exit 1
+            fi
+          done
+      - name: Verify Linux binary executes (server self-test)
+        run: |
+          sudo apt-get update && sudo apt-get install -y libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6 libgl1
+          tarball=$(find artifacts -name "Craft-Ubuntu-v*.tar.gz" -type f | head -1)
+          tar -xzf "$tarball"
+          dir=$(find . -maxdepth 1 -name "Craft-Ubuntu-v*" -type d | head -1)
+          "$dir/craft" --server-test
+          echo "OK: Linux binary runs the server self-test"
+
+  release:
+    needs: [version, test, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect release assets and generate checksums
+        run: |
+          mkdir release-assets
+          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release-assets/ \;
+          cd release-assets
+          sha256sum *.zip *.tar.gz > checksums-sha256.txt
+          ls -lh
+          cat checksums-sha256.txt
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ needs.version.outputs.tag }}"
+          date=$(date +%Y-%m-%d)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Release '$tag' already exists. Re-run (it will compute the next patch) or dispatch with a higher override."
+            exit 1
+          fi
+          gh release create "$tag" \
+            --title "Release $tag ($date)" \
+            --generate-notes \
+            release-assets/*

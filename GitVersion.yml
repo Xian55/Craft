@@ -1,0 +1,4 @@
+# Version floor for the Release workflow (template: HermesProxy).
+# Auto-bump increments the patch of the highest existing v*.*.* tag; this
+# value acts as a floor, so cutting a major/minor bump = edit this one line.
+next-version: 1.0.0
