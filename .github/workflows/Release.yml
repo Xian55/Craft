@@ -139,6 +139,43 @@ jobs:
           compression-level: 0
           retention-days: 1
 
+  build-macos:
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Build (universal arm64 + x86_64)
+        run: |
+          cmake -S . -B ../build-native -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake --build ../build-native -j3
+      - name: Tests (also proves terrain determinism on AppleClang/ARM)
+        run: |
+          B=../build-native
+          bun tools/terrain_ref.mjs > ref.txt
+          "$B/gen_test" > c.txt
+          diff ref.txt c.txt
+          "$B/phys_test"
+          "$B/sim_test"
+          "$B/net_test"
+          "$B/craft" --server-test
+      - name: Package
+        run: |
+          tag="${{ needs.version.outputs.tag }}"
+          mkdir "Craft-MacOS-$tag"
+          cp ../build-native/craft "Craft-MacOS-$tag/"
+          cp -r assets "Craft-MacOS-$tag/assets"
+          chmod a+x "Craft-MacOS-$tag/craft"
+          printf 'Unsigned binary: on first run use right-click > Open, or run\n  xattr -d com.apple.quarantine ./craft\n' > "Craft-MacOS-$tag/README.txt"
+          tar -czf "Craft-MacOS-$tag.tar.gz" "Craft-MacOS-$tag"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Craft-MacOS-${{ needs.version.outputs.tag }}
+          path: Craft-MacOS-${{ needs.version.outputs.tag }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   # exe only — runs in parallel with build-web/build-linux; the zip is
   # assembled by package-windows once both artifacts exist
   build-windows:
@@ -289,7 +326,7 @@ jobs:
           docker buildx imagetools inspect "ghcr.io/xian55/craft:${{ needs.version.outputs.tag }}"
 
   verify:
-    needs: [version, test, build-web, build-linux, package-windows]
+    needs: [version, test, build-web, build-linux, build-macos, package-windows]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -299,7 +336,7 @@ jobs:
           echo "Tests failed - aborting release"
           exit 1
       - name: Check build results
-        if: needs.build-web.result != 'success' || needs.build-linux.result != 'success' || needs.package-windows.result != 'success'
+        if: needs.build-web.result != 'success' || needs.build-linux.result != 'success' || needs.build-macos.result != 'success' || needs.package-windows.result != 'success'
         run: |
           echo "A build failed - aborting release"
           exit 1
@@ -311,7 +348,7 @@ jobs:
         run: |
           echo "=== Downloaded artifacts ==="
           find artifacts -type f | sort
-          for platform in "Windows-v" "Ubuntu-v" "Web-v"; do
+          for platform in "Windows-v" "Ubuntu-v" "MacOS-v" "Web-v"; do
             f=$(find artifacts -name "Craft-${platform}*" -type f | head -1)
             if [ -z "$f" ]; then
               echo "FAIL: Missing artifact for $platform"

@@ -70,6 +70,26 @@ jobs:
           cp ../build-native/craft.exe ../craft_raylib_build/native/craft.exe
           bun tools/e2e_net.mjs
 
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Build (universal arm64 + x86_64)
+        run: |
+          cmake -S . -B ../build-native -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake --build ../build-native -j3
+      - name: Tests
+        run: |
+          B=../build-native
+          bun tools/terrain_ref.mjs > ref.txt
+          "$B/gen_test" > c.txt
+          diff ref.txt c.txt
+          "$B/phys_test"
+          "$B/sim_test"
+          "$B/net_test"
+          "$B/craft" --server-test
+
   web:
     runs-on: ubuntu-latest
     steps:
