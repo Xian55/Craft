@@ -36,7 +36,7 @@ jobs:
     outputs:
       tag: ${{ steps.next.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -72,7 +72,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - name: System deps (raylib)
         run: |
@@ -102,7 +102,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
@@ -116,7 +116,7 @@ jobs:
           mkdir "Craft-Web-$tag"
           cp ../build-web/craft.html ../build-web/craft.js ../build-web/craft.wasm ../build-web/craft.data "Craft-Web-$tag/"
           zip -r "Craft-Web-$tag.zip" "Craft-Web-$tag"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Craft-Web-${{ needs.version.outputs.tag }}
           path: Craft-Web-${{ needs.version.outputs.tag }}.zip
@@ -128,7 +128,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: System deps (raylib)
         run: |
           sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure*.sources   # MS mirror 403s must not kill us
@@ -145,7 +145,7 @@ jobs:
           cp -r assets "Craft-Ubuntu-$tag/assets"
           chmod a+x "Craft-Ubuntu-$tag/craft"
           tar -czf "Craft-Ubuntu-$tag.tar.gz" "Craft-Ubuntu-$tag"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Craft-Ubuntu-${{ needs.version.outputs.tag }}
           path: Craft-Ubuntu-${{ needs.version.outputs.tag }}.tar.gz
@@ -157,7 +157,7 @@ jobs:
     needs: version
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - name: Build (universal arm64 + x86_64)
         run: |
@@ -182,7 +182,7 @@ jobs:
           chmod a+x "Craft-MacOS-$tag/craft"
           printf 'Unsigned binary: on first run use right-click > Open, or run\n  xattr -d com.apple.quarantine ./craft\n' > "Craft-MacOS-$tag/README.txt"
           tar -czf "Craft-MacOS-$tag.tar.gz" "Craft-MacOS-$tag"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Craft-MacOS-${{ needs.version.outputs.tag }}
           path: Craft-MacOS-${{ needs.version.outputs.tag }}.tar.gz
@@ -199,7 +199,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -210,7 +210,7 @@ jobs:
           cmake -S . -B ../build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DCRAFT_VERSION="${{ needs.version.outputs.tag }}"
           cmake --build ../build-native -j
           cp ../build-native/craft.exe .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Craft-WinExe-${{ needs.version.outputs.tag }}
           path: craft.exe
@@ -222,11 +222,11 @@ jobs:
     needs: [version, build-web, build-windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: Craft-WinExe-${{ needs.version.outputs.tag }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: Craft-Web-${{ needs.version.outputs.tag }}
       - name: Package (game + server + web client, one exe)
@@ -248,7 +248,7 @@ jobs:
             printf 'The world saves itself next to the exe every 10 seconds.\r\n'
           } > "$stage/README.txt"
           zip -r "$stage.zip" "$stage"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Craft-Windows-${{ needs.version.outputs.tag }}
           path: Craft-Windows-${{ needs.version.outputs.tag }}.zip
@@ -276,8 +276,8 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: Craft-Web-${{ needs.version.outputs.tag }}
       - name: Stage web client for the image
@@ -307,7 +307,7 @@ jobs:
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: docker-digest-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -321,7 +321,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: docker-digest-*
           path: /tmp/digests
@@ -356,7 +356,7 @@ jobs:
         run: |
           echo "A build failed - aborting release"
           exit 1
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: Craft-*
           path: artifacts
@@ -395,10 +395,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: Craft-*
           path: artifacts
