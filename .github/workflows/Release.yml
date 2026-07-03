@@ -139,8 +139,10 @@ jobs:
           compression-level: 0
           retention-days: 1
 
+  # exe only — runs in parallel with build-web/build-linux; the zip is
+  # assembled by package-windows once both artifacts exist
   build-windows:
-    needs: [version, build-web]
+    needs: version
     runs-on: windows-latest
     defaults:
       run:
@@ -156,29 +158,45 @@ jobs:
         run: |
           cmake -S . -B ../build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build ../build-native -j
+          cp ../build-native/craft.exe .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Craft-WinExe-${{ needs.version.outputs.tag }}
+          path: craft.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  package-windows:
+    needs: [version, build-web, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Craft-WinExe-${{ needs.version.outputs.tag }}
       - uses: actions/download-artifact@v4
         with:
           name: Craft-Web-${{ needs.version.outputs.tag }}
       - name: Package (game + server + web client, one exe)
-        shell: pwsh
         run: |
-          $tag = "${{ needs.version.outputs.tag }}"
-          $stage = "Craft-Windows-$tag"
-          New-Item -ItemType Directory -Force "$stage/web" | Out-Null
-          Copy-Item ../build-native/craft.exe "$stage/"
-          Copy-Item -Recurse assets "$stage/assets"
-          Expand-Archive "Craft-Web-$tag.zip" -DestinationPath tmp-web
-          Copy-Item tmp-web/*/* "$stage/web/"
-          Set-Content "$stage/start_server.cmd" "@echo off`r`ncd /d `"%~dp0`"`r`nset `"STATIC=%~dp0web`"`r`ncraft.exe --server`r`n"
-          $readme = "Craft Survival - game + server in one exe`r`n`r`n" +
-            "PLAY:  run craft.exe          (joins localhost, or: craft.exe --host SERVER-IP)`r`n" +
-            "HOST:  run start_server.cmd   (allow it through the Windows firewall when asked)`r`n" +
-            "       then everyone opens http://YOUR-IP:8080/ in a browser`r`n" +
-            "BOTH:  craft.exe --serve      (play and host at the same time)`r`n`r`n" +
-            "Must be plain http, not https - the game uses ws:// on the same port.`r`n" +
-            "The world saves itself next to the exe every 10 seconds.`r`n"
-          Set-Content "$stage/README.txt" $readme
-          Compress-Archive -Path "$stage" -DestinationPath "$stage.zip"
+          tag="${{ needs.version.outputs.tag }}"
+          stage="Craft-Windows-$tag"
+          mkdir -p "$stage/web"
+          cp craft.exe "$stage/"
+          cp -r assets "$stage/assets"
+          unzip -j "Craft-Web-$tag.zip" -d "$stage/web"
+          printf '@echo off\r\ncd /d "%%~dp0"\r\nset "STATIC=%%~dp0web"\r\ncraft.exe --server\r\n' > "$stage/start_server.cmd"
+          {
+            printf 'Craft Survival - game + server in one exe\r\n\r\n'
+            printf 'PLAY:  run craft.exe          (joins localhost, or: craft.exe --host SERVER-IP)\r\n'
+            printf 'HOST:  run start_server.cmd   (allow it through the Windows firewall when asked)\r\n'
+            printf '       then everyone opens http://YOUR-IP:8080/ in a browser\r\n'
+            printf 'BOTH:  craft.exe --serve      (play and host at the same time)\r\n\r\n'
+            printf 'Must be plain http, not https - the game uses ws:// on the same port.\r\n'
+            printf 'The world saves itself next to the exe every 10 seconds.\r\n'
+          } > "$stage/README.txt"
+          zip -r "$stage.zip" "$stage"
       - uses: actions/upload-artifact@v4
         with:
           name: Craft-Windows-${{ needs.version.outputs.tag }}
@@ -187,8 +205,89 @@ jobs:
           compression-level: 0
           retention-days: 1
 
+  # Multi-arch server image (ghcr.io/xian55/craft): built natively per arch
+  # (free arm64 runners - no qemu), merged into one manifest below. Windows
+  # containers intentionally not built: they need Windows hosts, and Windows
+  # hosting is covered by the release zip's one-exe `craft.exe --server`.
+  docker:
+    needs: [version, test, build-web]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Craft-Web-${{ needs.version.outputs.tag }}
+      - name: Stage web client for the image
+        run: |
+          mkdir -p web
+          unzip -j "Craft-Web-${{ needs.version.outputs.tag }}.zip" -d web
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/xian55/craft,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker-manifest:
+    needs: [version, docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: docker-digest-*
+          path: /tmp/digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create multi-arch manifest (versioned + latest)
+        run: |
+          cd /tmp/digests
+          docker buildx imagetools create \
+            -t "ghcr.io/xian55/craft:${{ needs.version.outputs.tag }}" \
+            -t "ghcr.io/xian55/craft:latest" \
+            $(printf 'ghcr.io/xian55/craft@sha256:%s ' *)
+          docker buildx imagetools inspect "ghcr.io/xian55/craft:${{ needs.version.outputs.tag }}"
+
   verify:
-    needs: [version, test, build-web, build-linux, build-windows]
+    needs: [version, test, build-web, build-linux, package-windows]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -198,7 +297,7 @@ jobs:
           echo "Tests failed - aborting release"
           exit 1
       - name: Check build results
-        if: needs.build-web.result != 'success' || needs.build-linux.result != 'success' || needs.build-windows.result != 'success'
+        if: needs.build-web.result != 'success' || needs.build-linux.result != 'success' || needs.package-windows.result != 'success'
         run: |
           echo "A build failed - aborting release"
           exit 1
@@ -232,7 +331,7 @@ jobs:
           echo "OK: Linux binary runs the server self-test"
 
   release:
-    needs: [version, test, verify]
+    needs: [version, test, verify, docker-manifest]
     runs-on: ubuntu-latest
     permissions:
       contents: write

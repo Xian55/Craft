@@ -76,7 +76,14 @@ emcmake cmake -S . -B ..\craft_raylib_build\web -G "MinGW Makefiles" -DCMAKE_BUI
 cmake --build ..\craft_raylib_build\web -j
 ```
 
-Easiest: run `serve.cmd` — it starts `craft.exe --server` with
+Or run the published server image (linux amd64/arm64, serves the web client
+and the world sync on one port):
+
+```
+docker run -d --name craft --restart unless-stopped -p 8080:8080 -v craft_world:/data ghcr.io/xian55/craft:latest
+```
+
+Easiest locally: run `serve.cmd` — it starts `craft.exe --server` with
 `STATIC=build-web`, so **one port (8080) serves both** the page and the world
 sync. Open `http://<host>:8080/` in a browser and play. Must be plain
 **http**, not file:// or https — the game opens `ws://<host>:8080`, and
