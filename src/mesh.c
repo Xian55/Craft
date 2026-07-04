@@ -56,7 +56,7 @@ static const FaceDef FACES[6] = {
 
 // --- Growable mesh builder ---
 typedef struct {
-  float *pos, *nrm, *uv; uint8_t *col; uint16_t *idx;
+  float *pos, *uv, *uv2; uint8_t *col; uint16_t *idx;
   int verts, tris, cap_v, cap_i;
   float vscale;   // fluid textures are vertical animation strips: v *= 1/frames
 } Builder;
@@ -66,8 +66,8 @@ static void b_reserve(Builder *b, int add_v, int add_i) {
     b->cap_v = b->cap_v ? b->cap_v * 2 : 4096;
     if (b->cap_v < b->verts + add_v) b->cap_v = b->verts + add_v;
     b->pos = realloc(b->pos, b->cap_v * 3 * sizeof(float));
-    b->nrm = realloc(b->nrm, b->cap_v * 3 * sizeof(float));
     b->uv  = realloc(b->uv,  b->cap_v * 2 * sizeof(float));
+    b->uv2 = realloc(b->uv2, b->cap_v * 2 * sizeof(float));
     b->col = realloc(b->col, b->cap_v * 4);
   }
   if (b->tris * 3 + add_i > b->cap_i) {
@@ -76,18 +76,23 @@ static void b_reserve(Builder *b, int add_v, int add_i) {
     b->idx = realloc(b->idx, b->cap_i * sizeof(uint16_t));
   }
 }
-static void b_free(Builder *b) { free(b->pos); free(b->nrm); free(b->uv); free(b->col); free(b->idx); memset(b, 0, sizeof(*b)); }
+static void b_free(Builder *b) { free(b->pos); free(b->uv); free(b->uv2); free(b->col); free(b->idx); memset(b, 0, sizeof(*b)); }
 
 // raylib Mesh.indices are uint16 — 65532 is the last full-quad-aligned count.
 #define MAX_VERTS 65532
 
+// No normal attribute (SOLID_VS and raylib's default shader both light without
+// one). uv/uv2 semantics depend on the material's shader:
+//   solid_shader — uv = atlas tile index (col,row), uv2 = in-tile coord scaled
+//                  by the greedy-merge span (SOLID_FS re-tiles it with fract).
+//   default shader (fluids, held cube) — uv = direct atlas UV, uv2 unused.
 static void b_vertex(Builder *b, float x, float y, float z,
-                     float nx, float ny, float nz, float u, float v,
+                     float u, float v, float u2, float v2,
                      uint8_t r, uint8_t g, uint8_t bl, uint8_t a) {
   int i = b->verts;
   b->pos[i*3] = x; b->pos[i*3+1] = y; b->pos[i*3+2] = z;
-  b->nrm[i*3] = nx; b->nrm[i*3+1] = ny; b->nrm[i*3+2] = nz;
   b->uv[i*2] = u; b->uv[i*2+1] = v;
+  b->uv2[i*2] = u2; b->uv2[i*2+1] = v2;
   b->col[i*4] = r; b->col[i*4+1] = g; b->col[i*4+2] = bl; b->col[i*4+3] = a;
   b->verts++;
 }
@@ -103,22 +108,53 @@ static void b_quad_indices(Builder *b, int start) {
 // darken the sky channel but torches keep glowing.
 static uint8_t to_u8(float v) { if (v > 1.0f) v = 1.0f; if (v < 0.0f) v = 0.0f; return (uint8_t)(v * 255.0f + 0.5f); }
 
-// pushFace (game.js:395): one block face, 4 corners with per-corner shade.
+// pushFace (game.js:395): one block face, 4 corners with per-corner shade. Used
+// for faces whose corners are NOT all equal (AO/light gradient) — those can't
+// merge, so they keep the exact per-corner look. uv = tile index, uv2 = in-tile
+// coord in [0,1]; SOLID_FS reconstructs the atlas UV (see push_face_rect).
 static void push_face(Builder *b, int x, int y, int z, const FaceDef *f, int tile,
                       float shades[4][2]) {
   if (b->verts + 4 > MAX_VERTS) return;   // spill guard (real chunks stay far below)
   b_reserve(b, 4, 6);
-  int col = tile % ATLAS_COLS, row = tile / ATLAS_COLS;
+  float col = tile % ATLAS_COLS, row = tile / ATLAS_COLS;
   int start = b->verts;
   for (int k = 0; k < 4; k++) {
     const int *c = f->corners[k];
-    // three.js UV origin is bottom-left; raylib/OpenGL textures load with row 0
-    // at top and raylib does not flip -> v_gl = 1 - v_three.
-    float u = (col + c[3]) * TILE / ATLAS_W;
-    float v = (row + 1 - c[4]) * TILE / ATLAS_H;
     b_vertex(b, (float)(x + c[0]), (float)(y + c[1]), (float)(z + c[2]),
-             (float)f->dir[0], (float)f->dir[1], (float)f->dir[2], u, v,
+             col, row, (float)c[3], (float)c[4],
              to_u8(shades[k][0]), to_u8(shades[k][1]), 0, 255);
+  }
+  b_quad_indices(b, start);
+}
+
+// Greedy-merged face: a Wu x Wv rectangle of identical uniform-lit cells emitted
+// as ONE quad. FACE_AXES maps each face's texture u/v onto the two world tangent
+// axes (d = normal axis) so the corner positions scale correctly; uv2 spans
+// (0..Wu, 0..Wv) so SOLID_FS repeats the tile across the rectangle. One flat
+// color (cr,cg) — every merged cell shares it, which is why it can merge.
+typedef struct { int d, ua, va; } FaceAxes;
+static const FaceAxes FACE_AXES[6] = {
+  /*0 -x*/ { 0, 2, 1 }, /*1 +x*/ { 0, 2, 1 },
+  /*2 -y*/ { 1, 0, 2 }, /*3 +y*/ { 1, 0, 2 },
+  /*4 -z*/ { 2, 0, 1 }, /*5 +z*/ { 2, 0, 1 },
+};
+static void push_face_rect(Builder *b, int bx, int by, int bz, int fi,
+                           int Wu, int Wv, int tile, uint8_t cr, uint8_t cg) {
+  if (b->verts + 4 > MAX_VERTS) return;
+  b_reserve(b, 4, 6);
+  const FaceDef *f = &FACES[fi];
+  const FaceAxes *fa = &FACE_AXES[fi];
+  float col = tile % ATLAS_COLS, row = tile / ATLAS_COLS;
+  int base[3] = { bx, by, bz };
+  int sz[3]; sz[fa->d] = 1; sz[fa->ua] = Wu; sz[fa->va] = Wv;
+  int start = b->verts;
+  for (int k = 0; k < 4; k++) {
+    const int *c = f->corners[k];
+    b_vertex(b, (float)(base[0] + c[0] * sz[0]),
+                (float)(base[1] + c[1] * sz[1]),
+                (float)(base[2] + c[2] * sz[2]),
+                col, row, c[3] * (float)Wu, c[4] * (float)Wv,
+                cr, cg, 0, 255);
   }
   b_quad_indices(b, start);
 }
@@ -141,11 +177,11 @@ static void add_torch(Builder *b, int x, int y, int z) {
     int start = b->verts;
     for (int k = 0; k < 4; k++) {
       const int *c = f->corners[k];
+      // torch samples a fixed sub-region of its tile; ul,vl in [0,1] go straight
+      // into uv2 (fract is identity there) so SOLID_FS lands on the same texels.
       float ul = uMin + c[3] * (uMax - uMin), vl = vMin + c[4] * (vMax - vMin);
-      float u = (c0 + ul) * TILE / ATLAS_W;
-      float v = (r0 + 1 - vl) * TILE / ATLAS_H;
       b_vertex(b, x + W[c[0]], y + c[1] * H, z + W[c[2]],
-               (float)f->dir[0], (float)f->dir[1], (float)f->dir[2], u, v, cr, cg, 0, 255);
+               (float)c0, (float)r0, ul, vl, cr, cg, 0, 255);
     }
     b_quad_indices(b, start);
   }
@@ -181,30 +217,44 @@ static bool inited = false;
 #define FRAG_DECL "out vec4 finalColor;\n"
 #endif
 
+// Greedy-merge atlas tiling: vertexTexCoord carries the tile index (col,row);
+// vertexTexCoord2 carries the in-tile coordinate scaled by the merge span
+// (0..W, 0..H). The fragment re-tiles it with fract() so one merged quad repeats
+// its atlas tile instead of stretching it, and never bleeds into neighbor tiles
+// (fract in [0,1) times the same tile origin). Works on WebGL1 — no texture
+// arrays needed. Reduces to the old direct-UV mapping when W=H=1.
 static const char *SOLID_VS =
   GLSL_V
   IN_V " vec3 vertexPosition;\n"
   IN_V " vec2 vertexTexCoord;\n"
+  IN_V " vec2 vertexTexCoord2;\n"
   IN_V " vec4 vertexColor;\n"
-  OUT_V " vec2 fragTexCoord;\n"
+  OUT_V " vec2 fragTile;\n"
+  OUT_V " vec2 fragTileUV;\n"
   OUT_V " vec4 fragColor;\n"
   "uniform mat4 mvp;\n"
   "void main() {\n"
-  "  fragTexCoord = vertexTexCoord;\n"
+  "  fragTile = vertexTexCoord;\n"
+  "  fragTileUV = vertexTexCoord2;\n"
   "  fragColor = vertexColor;\n"
   "  gl_Position = mvp * vec4(vertexPosition, 1.0);\n"
   "}\n";
 
 static const char *SOLID_FS =
   GLSL_F
-  IN_F " vec2 fragTexCoord;\n"
+  IN_F " vec2 fragTile;\n"
+  IN_F " vec2 fragTileUV;\n"
   IN_F " vec4 fragColor;\n"
   "uniform sampler2D texture0;\n"
   "uniform vec4 colDiffuse;\n"
   "uniform float uDaylight;\n"
+  "uniform vec2 uTileSize;\n"   // (TILE/ATLAS_W, TILE/ATLAS_H)
   FRAG_DECL
   "void main() {\n"
-  "  vec4 texel = " TEX2D "(texture0, fragTexCoord);\n"
+  // three.js UV origin is bottom-left, raylib top-left -> V flip: 1 - fract(v).
+  "  vec2 uv = vec2((fragTile.x + fract(fragTileUV.x)) * uTileSize.x,\n"
+  "                 (fragTile.y + 1.0 - fract(fragTileUV.y)) * uTileSize.y);\n"
+  "  vec4 texel = " TEX2D "(texture0, uv);\n"
   "  if (texel.a < 0.5) discard;\n"
   "  float light = max(fragColor.g, fragColor.r * uDaylight);\n"
   "  " FRAGCOLOR " = vec4(texel.rgb * light, 1.0) * colDiffuse;\n"
@@ -245,6 +295,9 @@ void mesh_init(void) {
     u_daylight = GetShaderLocation(solid_shader, "uDaylight");
     float one = 1.0f;
     SetShaderValue(solid_shader, u_daylight, &one, SHADER_UNIFORM_FLOAT);
+    int u_tilesize = GetShaderLocation(solid_shader, "uTileSize");
+    float ts[2] = { TILE / ATLAS_W, TILE / ATLAS_H };
+    SetShaderValue(solid_shader, u_tilesize, ts, SHADER_UNIFORM_VEC2);
   }
 
   // Water tint 0x3f79d0 at opacity 0.8, lava fullbright (game.js:2214-2222).
@@ -274,43 +327,99 @@ static bool upload(Builder *b, Mesh *out) {
   Mesh m = {0};
   m.vertexCount = b->verts;
   m.triangleCount = b->tris;
-  m.vertices  = b->pos;
-  m.normals   = b->nrm;
-  m.texcoords = b->uv;
-  m.colors    = b->col;
-  m.indices   = b->idx;
+  m.vertices   = b->pos;
+  m.texcoords  = b->uv;
+  m.texcoords2 = b->uv2;
+  m.colors     = b->col;
+  m.indices    = b->idx;
   UploadMesh(&m, false);
   memset(b, 0, sizeof(*b));   // raylib owns the arrays now (freed by UnloadMesh)
   *out = m;
   return true;
 }
 
-// buildChunkSolid (game.js:547)
+// buildChunkSolid (game.js:547) — greedy-meshed. Per face direction, each layer
+// gets a 2D mask of visible faces; runs of cells that share the same tile AND a
+// single flat shade (uniform light+AO, the common case on open terrain) merge
+// into one maximal rectangle quad. Gradient-lit faces near occluders can't merge
+// and fall back to per-corner 1x1 quads (push_face) for a bit-identical look.
+// Corner-shade / occlusion math is reused verbatim from the old per-face path.
+typedef struct { uint8_t present, cr, cg; int16_t tile; } MaskCell;
+
 static void build_chunk_solid(int cx, int cz) {
   Chunk *c = ensure_chunk(cx, cz);
   compute_light(c);           // fresh light for current blocks (JS does this too)
   Builder b = {0};
   int x0 = cx * CHUNK, z0 = cz * CHUNK;
-  for (int x = x0; x < x0 + CHUNK; x++)
-    for (int z = z0; z < z0 + CHUNK; z++)
-      for (int y = 0; y < WORLD_H; y++) {
-        uint8_t block = c->blocks[LI(x - x0, y, z - z0)];
-        if (block == B_AIR) continue;
-        if (block == B_TORCH) { add_torch(&b, x, y, z); continue; }
-        for (int fi = 0; fi < 6; fi++) {
-          const FaceDef *f = &FACES[fi];
-          if (occludes(get_voxel(x + f->dir[0], y + f->dir[1], z + f->dir[2]))) continue;
-          int dx = f->dir[0], dy = f->dir[1];
-          float dir_f = dy > 0 ? 1.0f : dy < 0 ? 0.45f : dx != 0 ? 0.6f : 0.8f;
-          int n_axis = dx != 0 ? 0 : dy != 0 ? 1 : 2;
-          int tang[2], ti = 0;
-          for (int a = 0; a < 3; a++) if (a != n_axis) tang[ti++] = a;
+  int len[3] = { CHUNK, WORLD_H, CHUNK };   // per-axis extent; base is (x0,0,z0)
+
+  // Torches are non-cube geometry — emitted whole in a separate pass, no merge.
+  for (int lx = 0; lx < CHUNK; lx++)
+    for (int lz = 0; lz < CHUNK; lz++)
+      for (int y = 0; y < WORLD_H; y++)
+        if (c->blocks[LI(lx, y, lz)] == B_TORCH) add_torch(&b, x0 + lx, y, z0 + lz);
+
+  MaskCell mask[WORLD_H][CHUNK];   // [va][ua]; ua extent <= CHUNK, va extent <= WORLD_H
+  for (int fi = 0; fi < 6; fi++) {
+    const FaceDef *f = &FACES[fi];
+    const FaceAxes *fa = &FACE_AXES[fi];
+    int d = fa->d, ua = fa->ua, va = fa->va;
+    int Ulen = len[ua], Vlen = len[va];
+    int dx = f->dir[0], dy = f->dir[1];
+    float dir_f = dy > 0 ? 1.0f : dy < 0 ? 0.45f : dx != 0 ? 0.6f : 0.8f;
+    int tang[2], ti = 0;
+    for (int a = 0; a < 3; a++) if (a != d) tang[ti++] = a;
+
+    for (int L = 0; L < len[d]; L++) {
+      for (int v = 0; v < Vlen; v++)
+        for (int u = 0; u < Ulen; u++) {
+          MaskCell *m = &mask[v][u];
+          m->present = 0;
+          int lp[3]; lp[d] = L; lp[ua] = u; lp[va] = v;   // local coords
+          uint8_t block = c->blocks[LI(lp[0], lp[1], lp[2])];
+          if (block == B_AIR || block == B_TORCH) continue;
+          int wx = x0 + lp[0], wy = lp[1], wz = z0 + lp[2];
+          if (occludes(get_voxel(wx + f->dir[0], wy + f->dir[1], wz + f->dir[2]))) continue;
           float shades[4][2];
           for (int k = 0; k < 4; k++)
-            corner_shade(x, y, z, f->dir, f->corners[k], tang, dir_f, shades[k]);
-          push_face(&b, x, y, z, f, tile_for(block, f->name), shades);
+            corner_shade(wx, wy, wz, f->dir, f->corners[k], tang, dir_f, shades[k]);
+          uint8_t cr = to_u8(shades[0][0]), cg = to_u8(shades[0][1]);
+          int uniform = 1;
+          for (int k = 1; k < 4; k++)
+            if (to_u8(shades[k][0]) != cr || to_u8(shades[k][1]) != cg) { uniform = 0; break; }
+          int tile = tile_for(block, f->name);
+          if (uniform) { m->present = 1; m->cr = cr; m->cg = cg; m->tile = (int16_t)tile; }
+          else push_face(&b, wx, wy, wz, f, tile, shades);   // gradient face -> 1x1
         }
-      }
+
+      // Greedy merge: for each present cell, grow width along ua then height
+      // along va while tile+color match, emit one rect, clear the covered cells.
+      for (int v = 0; v < Vlen; v++)
+        for (int u = 0; u < Ulen; ) {
+          MaskCell *m = &mask[v][u];
+          if (!m->present) { u++; continue; }
+          int w = 1;
+          while (u + w < Ulen && mask[v][u + w].present && mask[v][u + w].tile == m->tile
+                 && mask[v][u + w].cr == m->cr && mask[v][u + w].cg == m->cg) w++;
+          int h = 1, stop = 0;
+          while (v + h < Vlen && !stop) {
+            for (int k = 0; k < w; k++) {
+              MaskCell *n = &mask[v + h][u + k];
+              if (!n->present || n->tile != m->tile || n->cr != m->cr || n->cg != m->cg) { stop = 1; break; }
+            }
+            if (!stop) h++;
+          }
+          int lp[3]; lp[d] = L; lp[ua] = u; lp[va] = v;
+          push_face_rect(&b, x0 + lp[0], lp[1], z0 + lp[2], fi, w, h, m->tile, m->cr, m->cg);
+          for (int dv = 0; dv < h; dv++)
+            for (int du = 0; du < w; du++) mask[v + dv][u + du].present = 0;
+          u += w;
+        }
+    }
+  }
+
+  if (getenv("CRAFT_DEBUG"))
+    TraceLog(LOG_INFO, "solid chunk %d,%d: verts=%d tris=%d", cx, cz, b.verts, b.tris);
   if (c->has_solid) { UnloadMesh(c->mesh_solid); c->has_solid = false; }
   c->has_solid = upload(&b, &c->mesh_solid);
 }
@@ -337,14 +446,14 @@ static double corner_height(AmtFn amt, int x, int y, int z, int dx, int dz) {
 }
 
 // pushQuad (game.js:615): verts are {x,y,z,u,v}, shade into vertex color.
-static void push_quad(Builder *b, const float v[4][5], const float n[3], float shade) {
+static void push_quad(Builder *b, const float v[4][5], float shade) {
   if (b->verts + 4 > MAX_VERTS) return;
   b_reserve(b, 4, 6);
   uint8_t g = (uint8_t)((shade > 1 ? 1 : shade) * 255.0f + 0.5f);
   float vs = b->vscale > 0 ? b->vscale : 1.0f;
   int start = b->verts;
-  for (int k = 0; k < 4; k++)
-    b_vertex(b, v[k][0], v[k][1], v[k][2], n[0], n[1], n[2], v[k][3], v[k][4] * vs, g, g, g, 255);
+  for (int k = 0; k < 4; k++)  // fluids use the default shader: direct UV, no uv2
+    b_vertex(b, v[k][0], v[k][1], v[k][2], v[k][3], v[k][4] * vs, 0.0f, 0.0f, g, g, g, 255);
   b_quad_indices(b, start);
 }
 
@@ -356,29 +465,29 @@ static void emit_fluid(Builder *b, AmtFn amt, int x, int y, int z, float shade) 
   float X = (float)x, Y = (float)y, Z = (float)z;
   if (amt(x, y + 1, z) == 0) {
     float v[4][5] = {{X,Y+h00,Z,0,0},{X+1,Y+h10,Z,1,0},{X,Y+h01,Z+1,0,1},{X+1,Y+h11,Z+1,1,1}};
-    push_quad(b, v, (float[3]){0,1,0}, shade);
+    push_quad(b, v, shade);
   }
   #define DRAW_SIDE(dx,dz) (get_voxel(x+(dx), y, z+(dz)) == B_AIR && amt(x+(dx), y, z+(dz)) == 0)
   if (DRAW_SIDE(1,0)) {
     float v[4][5] = {{X+1,Y+h10,Z,0,1},{X+1,Y,Z,0,0},{X+1,Y+h11,Z+1,1,1},{X+1,Y,Z+1,1,0}};
-    push_quad(b, v, (float[3]){1,0,0}, shade);
+    push_quad(b, v, shade);
   }
   if (DRAW_SIDE(-1,0)) {
     float v[4][5] = {{X,Y+h00,Z,0,1},{X,Y,Z,0,0},{X,Y+h01,Z+1,1,1},{X,Y,Z+1,1,0}};
-    push_quad(b, v, (float[3]){-1,0,0}, shade);
+    push_quad(b, v, shade);
   }
   if (DRAW_SIDE(0,-1)) {
     float v[4][5] = {{X,Y+h00,Z,0,1},{X,Y,Z,0,0},{X+1,Y+h10,Z,1,1},{X+1,Y,Z,1,0}};
-    push_quad(b, v, (float[3]){0,0,-1}, shade);
+    push_quad(b, v, shade);
   }
   if (DRAW_SIDE(0,1)) {
     float v[4][5] = {{X,Y+h01,Z+1,0,1},{X,Y,Z+1,0,0},{X+1,Y+h11,Z+1,1,1},{X+1,Y,Z+1,1,0}};
-    push_quad(b, v, (float[3]){0,0,1}, shade);
+    push_quad(b, v, shade);
   }
   #undef DRAW_SIDE
   if (get_voxel(x, y - 1, z) == B_AIR && amt(x, y - 1, z) == 0) {
     float v[4][5] = {{X,Y,Z,0,0},{X+1,Y,Z,1,0},{X,Y,Z+1,0,1},{X+1,Y,Z+1,1,1}};
-    push_quad(b, v, (float[3]){0,-1,0}, shade);
+    push_quad(b, v, shade);
   }
 }
 
@@ -444,9 +553,8 @@ Mesh build_block_cube_mesh(uint8_t block) {
     for (int k = 0; k < 4; k++) {
       const int *c = f->corners[k];
       float u = (col + c[3]) * TILE / ATLAS_W;
-      float v = (row + 1 - c[4]) * TILE / ATLAS_H;
-      b_vertex(&b, c[0] - 0.5f, c[1] - 0.5f, c[2] - 0.5f,
-               (float)f->dir[0], (float)f->dir[1], (float)f->dir[2], u, v, 255, 255, 255, 255);
+      float v = (row + 1 - c[4]) * TILE / ATLAS_H;  // held cube uses default shader: direct UV
+      b_vertex(&b, c[0] - 0.5f, c[1] - 0.5f, c[2] - 0.5f, u, v, 0.0f, 0.0f, 255, 255, 255, 255);
     }
     b_quad_indices(&b, start);
   }
