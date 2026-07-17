@@ -16,6 +16,7 @@ static float break_time_base(uint8_t b) {
   switch (b) {
     case B_LEAVES: return 0.2f;
     case B_GRASS: case B_DIRT: case B_SAND: return 0.4f;
+    case B_SNOW: return 0.2f;
     case B_WOOD: return 0.8f;  case B_PLANKS: return 0.7f;
     case B_STONE: case B_STONE_BRICK: return 1.4f;
     case B_COBBLE: case B_BRICK: return 1.2f;
@@ -25,7 +26,7 @@ static float break_time_base(uint8_t b) {
 }
 static int tool_for(uint8_t b) {
   switch (b) {
-    case B_DIRT: case B_GRASS: case B_SAND: return I_SHOVEL;
+    case B_DIRT: case B_GRASS: case B_SAND: case B_SNOW: return I_SHOVEL;
     case B_STONE: case B_COBBLE: case B_STONE_BRICK: case B_BRICK: return I_PICKAXE;
     default: return 0;
   }

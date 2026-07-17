@@ -25,6 +25,7 @@
 #define B_TORCH       11
 #define B_CHEST       12
 #define B_TNT         13
+#define B_SNOW        14
 
 // Water array semantics: 0 none, 1..8 flowing water, 9 source,
 // 11..18 flowing lava, 19 lava source.

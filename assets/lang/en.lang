@@ -14,6 +14,7 @@ item.brick=Bricks
 item.torch=Torch
 item.chest=Chest
 item.tnt=TNT
+item.snow=Snow
 item.shovel=Shovel
 item.pickaxe=Pickaxe
 item.sword=Sword
