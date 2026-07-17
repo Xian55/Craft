@@ -42,8 +42,10 @@ snake_case, C11, lean comments). Wrap a new per-frame phase in the `prof_note` t
 in the `CRAFT_PROF` table.
 
 ## 6. Gates — ALL must pass before commit (run in order; fix and re-run on any failure)
-1. **Determinism gate** — if the change is anywhere near `src/gen.c`:
-   `bun tools\terrain_ref.mjs` vs `gen_test.exe`, `diff --strip-trailing-cr` empty. Never skip.
+1. **Determinism gate** — if the change is anywhere near `src/gen.c`: `gen_test.exe` vs the committed
+   C golden `tests\gen_golden.txt`, `diff --strip-trailing-cr` empty. For an **intentional** gen
+   change, re-bless (`gen_test.exe > tests\gen_golden.txt`) and commit the golden. gen must stay a
+   pure deterministic double-only fn (C↔C multiplayer determinism). Never skip.
 2. **Unit + integration tests** — `phys_test`, `sim_test`, `net_test`, `craft.exe --server-test`,
    and `bun tools\e2e_net.mjs` as relevant (see **craft-test**). Green.
 3. **Perf + memory gate** — if the feature touches a hot path, add a bench case with ms + alloc

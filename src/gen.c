@@ -1,8 +1,9 @@
-// Deterministic terrain — bit-faithful port of game.js hash2/valueNoise/fbm/
-// terrainHeight/genChunk. All arithmetic in double, same expression order as
-// the JS source; JS-specific semantics (ToInt32, Math.imul, typed-array
-// out-of-bounds writes being silently dropped) are emulated explicitly.
-// Do NOT compile with -ffast-math.
+// Deterministic terrain. hash2/valueNoise/fbm are the original bit-faithful JS
+// port (ToInt32 / Math.imul / OOB-write-drop emulated); terrainHeight/genChunk
+// have since FORKED from the JS (JS cross-play dropped) to add masked mountains
+// and carved rivers. The invariant is now C<->C determinism, guarded by the C
+// golden (tests/gen_golden.txt): all arithmetic in double, no pow (mul+sqrt).
+// Do NOT compile with -ffast-math; gen.c keeps -ffp-contract=off.
 #include "gen.h"
 #include "config.h"
 #include <math.h>
@@ -55,21 +56,47 @@ double fbm(double x, double z, int oct) {
 // non-negative, where floor(x + 0.5) is identical.
 static double js_round_nonneg(double d) { return floor(d + 0.5); }
 
-// game.js:95 — terrainHeight(x, z)
+// terrainHeight(x, z) — continental ocean/land, plus masked ridged mountains and
+// carved rivers (forked from JS). Deterministic doubles only; no pow (mul+sqrt).
 int terrain_height(int x, int z) {
-  double cont = fbm((double)x * 0.004, (double)z * 0.004, 4);
+  double dx = (double)x, dz = (double)z;
+  double cont = fbm(dx * 0.004, dz * 0.004, 4);
   if (cont < 0.42) {                        // ocean floor below sea level
     double dep = js_round_nonneg((0.42 - cont) / 0.42 * 12.0);
     int h = SEA_Y - 2 - (int)dep;
     return h < 1 ? 1 : h;
   }
-  double land = (cont - 0.42) / 0.58;
-  double coast = land * 3.0; if (coast > 1.0) coast = 1.0;
-  double hills = fbm((double)x * 0.018, (double)z * 0.018, 5);
-  // hills^2.5 spelled as mul+sqrt: pow is not correctly rounded across
-  // platforms, mul/sqrt are — keeps terrain identical to (patched) game.js.
-  double relief = hills * hills * sqrt(hills) * 55.0;
-  int h = SEA_Y - 1 + (int)js_round_nonneg(land * 4.0 + relief * coast);
+  double land = (cont - 0.42) / 0.58;       // 0 at coast .. 1 inland
+  double coast = land * 3.0; if (coast > 1.0) coast = 1.0;   // gentle beaches
+
+  // rolling base hills. hills^2.5 as mul+sqrt (correctly rounded; pow is not).
+  double hills = fbm(dx * 0.018, dz * 0.018, 5);
+  double relief = hills * hills * sqrt(hills) * 26.0;
+
+  // mountains: a low-freq mask gates ridged noise, so ranges cluster instead of
+  // spiking everywhere. ridge = 1-|2n-1| makes sharp crests along noise lines.
+  double mask = fbm(dx * 0.0016 + 1000.0, dz * 0.0016 + 1000.0, 3);
+  double m = (mask - 0.55) / 0.45;          // <=0 lowland, ramps to 1 alpine
+  if (m > 0.0) {
+    if (m > 1.0) m = 1.0;
+    double rn = fbm(dx * 0.01 + 2000.0, dz * 0.01 + 2000.0, 5);
+    double ridge = 1.0 - fabs(2.0 * rn - 1.0);
+    relief += m * m * ridge * ridge * 34.0;
+  }
+
+  double height = land * 4.0 + relief * coast;
+
+  // rivers: a thin winding ridge band carves a fixed-depth channel; where it
+  // dips below SEA_Y, gen_chunk_data fills it with water (lowland rivers hold
+  // water, mountain crossings become dry notches).
+  double rv = fbm(dx * 0.0035 + 5000.0, dz * 0.0035 + 5000.0, 4);
+  double river = 1.0 - fabs(2.0 * rv - 1.0);
+  if (river > 0.86) {
+    double carve = (river - 0.86) / 0.14;   // 0 at bank .. 1 at channel center
+    height -= carve * carve * 7.0;
+  }
+
+  int h = SEA_Y - 1 + (int)floor(height + 0.5);
   if (h < 1) h = 1;
   if (h > WORLD_H - 4) h = WORLD_H - 4;
   return h;
