@@ -127,6 +127,22 @@ static int biome_at(int wx, int wz, int h) {
   return BIOME_PLAINS;
 }
 
+// 3D hash for ore veins: fold y into the 2D hash with distinct primes.
+// (>>2 groups blocks into 4x4x4 cells; arithmetic shift = floor-div, stable.)
+static double hash3(int x, int y, int z) {
+  return js_hash2((double)x + (double)y * 1013.0, (double)z - (double)y * 1409.0);
+}
+// Deep stone -> coal (shallow-mid) or iron (deeper) where a coarse-cell vein hash
+// AND a finer per-block hash both hit, giving small ragged blobs.
+static uint8_t orify(int wx, int wy, int wz, int h) {
+  int cx = wx >> 2, cy = wy >> 2, cz = wz >> 2;
+  if (wy >= 5 && wy <= h - 5 && hash3(cx, cy, cz) < 0.030
+      && hash3(wx * 2 + 1, wy * 2, wz * 2 + 1) < 0.72) return B_COAL_ORE;
+  if (wy >= 2 && wy <= 30 && hash3(cx + 777, cy, cz) < 0.020
+      && hash3(wx * 2, wy * 2 + 1, wz * 2) < 0.62) return B_IRON_ORE;
+  return B_STONE;
+}
+
 // genChunk(cx, cz) — forked: biome-aware surface + tree density
 void gen_chunk_data(int cx, int cz, uint8_t *blocks, uint8_t *water) {
   for (int i = 0; i < CHUNK_VOL; i++) { blocks[i] = 0; water[i] = 0; }
@@ -142,10 +158,11 @@ void gen_chunk_data(int cx, int cz, uint8_t *blocks, uint8_t *water) {
       else if (biome == BIOME_SNOW)   { top = B_SNOW;  sub = B_DIRT; }
       else                            { top = B_GRASS; sub = B_DIRT; }
       for (int y = 0; y <= h; y++) {
-        blocks[LI(lx, y, lz)] =
-          y == 0 ? B_STONE :
-          y == h ? top :
-          y > h - 3 ? sub : B_STONE;
+        uint8_t blk = y == 0 ? B_STONE :
+                      y == h ? top :
+                      y > h - 3 ? sub : B_STONE;
+        if (blk == B_STONE && y > 0) blk = orify(wx, y, wz, h);   // ore veins in deep stone
+        blocks[LI(lx, y, lz)] = blk;
       }
       if (h < SEA_Y) for (int y = h + 1; y <= SEA_Y; y++) water[LI(lx, y, lz)] = 9;
       double forest = fbm((double)wx * 0.012 + 500.0, (double)wz * 0.012 + 500.0, 3);

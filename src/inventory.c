@@ -60,6 +60,7 @@ const char *item_name(int id) {
     case B_TNT: return tr("item.tnt");
     case B_TORCH: return tr("item.torch");        case B_CHEST: return tr("item.chest");
     case B_SNOW: return tr("item.snow");
+    case B_COAL_ORE: return tr("item.coal_ore"); case B_IRON_ORE: return tr("item.iron_ore");
     case I_SHOVEL: return tr("item.shovel");      case I_PICKAXE: return tr("item.pickaxe");
     case I_SWORD: return tr("item.sword");        case I_BUCKET: return tr("item.bucket");
     case I_WATER_BUCKET: return tr("item.water_bucket"); case I_PORK: return tr("item.pork");
@@ -78,6 +79,7 @@ void item_color(int id, uint8_t rgb[3]) {
     case B_STONE_BRICK: c = 0x9a9a9a; break; case B_BRICK: c = 0xa4432e; break;
     case B_TORCH: c = 0xff9a1f; break; case B_CHEST: c = 0x7a5230; break;
     case B_SNOW: c = 0xf4f8ff; break;
+    case B_COAL_ORE: c = 0x4a4a4a; break; case B_IRON_ORE: c = 0xc8a082; break;
     case B_TNT: c = 0xc0392b; break;  case I_LAVA_BUCKET: c = 0xe2560f; break;
     default: c = 0xccaa88; break;
   }
