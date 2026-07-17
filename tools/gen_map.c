@@ -35,9 +35,41 @@ int main(int argc, char **argv) {
   int R   = argc > 3 ? atoi(argv[3]) : 768;
   const char *out = argc > 4 ? argv[4] : "map.png";
   int sliceY = argc > 5 ? atoi(argv[5]) : -1;   // >=0: flat cross-section at Y
+  int vert = argc > 6 && argv[6][0] == 'v';     // 'v': vertical X-Y cross-section
   if (R < 16) R = 16;
   if (R > 2048) R = 2048;                 // cap ~16M px (~128 MB working buffers)
   int W = 2 * R, H = 2 * R;
+
+  // Vertical cross-section (side view) at z = centerZ: sky/air dark on top,
+  // then terrain + stone with the cave profile (caverns/tunnels) cut through it.
+  if (vert) {
+    const int VS = 5;                     // px per block, vertically
+    int VW = W, VH = WORLD_H * VS;
+    Color *vp = malloc((size_t)VW * VH * sizeof(Color));
+    if (!vp) { fprintf(stderr, "gen_map: out of memory\n"); return 1; }
+    static uint8_t bl[CHUNK_VOL], wt[CHUNK_VOL];
+    int lastc = 0x7fffffff, ccz = chunk_of_(cz0), lz = cz0 - ccz * CHUNK;
+    for (int i = 0; i < VW; i++) {
+      int wx = cx0 - R + i, ccx = chunk_of_(wx);
+      if (ccx != lastc) { gen_chunk_data(ccx, ccz, bl, wt); lastc = ccx; }
+      int lx = wx - ccx * CHUNK;
+      for (int y = 0; y < WORLD_H; y++) {
+        uint8_t b = bl[LI(lx, y, lz)];
+        unsigned char r, g, bb;
+        if (b == B_AIR) {
+          if (wt[LI(lx, y, lz)] > 0) { r = 70; g = 120; bb = 200; }   // water
+          else { r = 20; g = 20; bb = 28; }                           // air / cave
+        } else surf_color(b, &r, &g, &bb);
+        for (int s = 0; s < VS; s++)
+          vp[(size_t)(VH - 1 - (y * VS + s)) * VW + i] = (Color){ r, g, bb, 255 };
+      }
+    }
+    Image im = { vp, VW, VH, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
+    bool okv = ExportImage(im, out);
+    free(vp);
+    printf("gen_map: vertical %dx%d at z=%d -> %s (%s)\n", VW, VH, cz0, out, okv ? "ok" : "FAIL");
+    return okv ? 0 : 1;
+  }
 
   Color *px = malloc((size_t)W * H * sizeof(Color));
   int   *hs = malloc((size_t)W * H * sizeof(int));   // solid-surface height, for hillshade

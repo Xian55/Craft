@@ -27,7 +27,9 @@ CRAFT_BENCH(gen_fbm_scan, 40, 0.25) {
 
 // One full chunk generated into a static buffer -> provably zero heap allocs, so
 // the memory ceiling is an exact 0 (a stray malloc in the gen path would FAIL).
-CRAFT_BENCH_FULL(gen_chunk_fill, 200, 0.35, /*allocs*/ 0, /*bytes*/ 0) {
+// Budget grew with the generator: terrain shape -> biomes -> ores -> MC-1.18-style
+// caves (3 cached-noise fields). ~0.33 ms measured; 0.55 leaves regression headroom.
+CRAFT_BENCH_FULL(gen_chunk_fill, 200, 0.55, /*allocs*/ 0, /*bytes*/ 0) {
   static uint8_t blk[CHUNK_VOL], wat[CHUNK_VOL];
   for (int i = 0; i < B->iters; i++) {
     gen_chunk_data(i & 7, (i >> 3) & 7, blk, wat);
