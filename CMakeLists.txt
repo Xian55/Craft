@@ -120,4 +120,27 @@ if (NOT EMSCRIPTEN)
   add_executable(net_test tests/net_test.c src/proto.c src/interp.c)
   target_include_directories(net_test PRIVATE src)
   target_link_libraries(net_test m)
+
+  # Perf + memory gate: Release-only micro-benchmarks with ms + allocation budgets
+  # (bench_test.exe, nonzero on any breach). Headless — mirrors sim_test's link set
+  # (known good with mesh+light). CRAFT_BENCH_BUILD unlocks the no-upload mesh seam;
+  # -Wl,--wrap gives deterministic per-case malloc accounting. gen.c inherits
+  # -ffp-contract=off via the dir-scoped set_source_files_properties above.
+  # WIN32-only: the runner uses windows.h/psapi (QPC clock + peak RSS) and --wrap
+  # (GNU ld; Apple ld64 lacks it). ms budgets are calibrated on the Windows dev box,
+  # so this is a dev-box/Windows gate, not a cross-platform CI check (shared linux/
+  # macos runners would make the hard ms budgets flaky).
+  if (WIN32)
+    add_executable(bench_test
+      bench/bench_main.c bench/bench_alloc.c
+      bench/bench_gen.c bench/bench_mesh.c bench/bench_light.c bench/bench_fluids.c
+      src/gen.c src/world.c src/light.c src/mesh.c src/fluids.c src/physics.c
+      src/entities.c src/inventory.c src/lang.c src/prof.c src/sky.c src/proto.c
+      tests/net_stubs.c)
+    target_include_directories(bench_test PRIVATE src bench vendor)
+    target_compile_definitions(bench_test PRIVATE CRAFT_BENCH_BUILD)
+    target_link_libraries(bench_test raylib psapi)
+    target_link_options(bench_test PRIVATE
+      -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free)
+  endif()
 endif()

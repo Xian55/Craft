@@ -2,6 +2,10 @@
 
 Minecraft-like voxel survival game in C11 + raylib 5.5 (CMake FetchContent) with an Emscripten WASM build. **One binary**: `craft.exe` is the client by default, `--server` makes it a headless dedicated server (src/server.c, no window/GPU), `--serve` plays and hosts at once. Bun is a dev-tool only (tests, terrain reference); no JS at runtime. Ported from the legacy vanilla-JS game in `..\craft_js` (that dir is single-player-only now; everything current is here). UI text is localized (`assets/lang/*.lang`, default English, `/lang hu` in chat, `CRAFT_LANG` env, persisted in `lang.txt` next to exe); lang values ASCII only (raylib default font has no accents). Code comments English.
 
+## Skills & working agreement (.claude/skills)
+
+Prefer these over ad-hoc steps: **craft-feature** (the dev loop for any new feature — design → test → gates → verify → docs → commit), **craft-build** (build native + `CRAFT_SHOT` screenshot verify), **craft-test** (the full battery below), **craft-bench** (the Release-only `bench_test` perf+memory gate: ms + allocation budgets per hot path), **craft-new-module** (scaffold `src/*.c/.h` + CMake wiring), **craft-onboard** (fresh-machine setup), **craft-docs** (keep this file + `memory/` current — the last step of craft-feature), **raylib** (pinned 5.5 API reference). Working agreement: features go through **craft-feature**; never skip the determinism gate; a hot-path change needs a **craft-bench** case within budget; finish by updating docs via **craft-docs**.
+
 ## Quick start
 
 - `serve.cmd` — game server + browser game on `http://<host>:8080/` (runs `craft.exe --server` with STATIC=`..\craft_raylib_build\web`)
@@ -31,6 +35,7 @@ gcc/mingw32-make come from WinLibs (winget, not on PATH in every shell — see m
 - `phys_test.exe`, `sim_test.exe` (fluids/TNT/sand/crafting), `net_test.exe` (codec golden bytes + interpolation) — in `..\craft_raylib_build\native`.
 - `craft.exe --server-test` — server self-test (edits-file goldens, relay goldens, RFC 6455 accept vector, players.json round-trip, batch split).
 - `bun tools\e2e_net.mjs` — live wire-spec e2e against `craft --server` (join order, 20 Hz relay, replay, heartbeat, reject).
+- `bench_test.exe` — Release-only, native-Windows perf+memory gate (`bench/`): micro-benchmarks the hot paths (gen/mesh/light/fluids) with ms + allocation budgets, nonzero on breach. Windows-only target (windows.h/psapi + `-Wl,--wrap`; budgets calibrated on the dev box) — not a cross-platform CI check. Adds a `CRAFT_BENCH` macro (constructor-registered), a QPC clock, a `-Wl,--wrap` malloc shim, and a `CRAFT_BENCH_BUILD` `#ifdef` seam in mesh.c (`mesh_bench_solid`, build-without-upload) — shipping `craft` is byte-identical. See skill `craft-bench`; complements `CRAFT_PROF` (whole loop) + F3 metrics (live).
 
 ## Architecture (src/)
 
