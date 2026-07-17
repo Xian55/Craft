@@ -14,15 +14,19 @@ build.cmd          # builds craft.exe + gen_test/phys_test/sim_test/net_test/ben
 ```
 
 ## 1. Determinism gate (CRITICAL — gate ANY change near src/gen.c)
-Terrain noise must stay bit-identical to the legacy JS reference. The C and JS generators must
-produce byte-identical output:
+gen must stay a pure, deterministic, double-only function so every client on the same build generates
+the same world (C↔C multiplayer determinism). The gate compares `gen_test.exe` output against a
+committed **C golden** (`tests/gen_golden.txt`); the legacy JS ref is retired (JS cross-play dropped):
 ```bash
-bun tools\terrain_ref.mjs > ref.txt
 ..\craft_raylib_build\native\gen_test.exe > c.txt
-diff --strip-trailing-cr ref.txt c.txt      # MUST be empty
+diff --strip-trailing-cr tests\gen_golden.txt c.txt      # MUST be empty
 ```
-If this diffs, stop — a gen.c change broke determinism (watch FP contraction, `pow` vs
-`x*x*sqrt(x)`, ToInt32 emulation). Never merge a non-empty diff.
+If this diffs **unintentionally**, stop — something changed gen output (watch FP contraction, `pow`
+vs `x*x*sqrt(x)`, ToInt32 emulation, `-ffp-contract=off`). If the change is **intentional** (a new
+terrain feature), re-bless the golden and commit it, calling it out in the commit message:
+```bash
+..\craft_raylib_build\native\gen_test.exe > tests\gen_golden.txt
+```
 
 ## 2. Unit exes (run, expect PASS / exit 0)
 ```bash

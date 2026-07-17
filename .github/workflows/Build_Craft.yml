@@ -42,9 +42,8 @@ jobs:
       - name: Tests
         run: |
           B=../build-native
-          bun tools/terrain_ref.mjs > ref.txt
           "$B/gen_test" > c.txt
-          diff ref.txt c.txt          # terrain determinism gate
+          diff --strip-trailing-cr tests/gen_golden.txt c.txt   # determinism gate (C golden)
           "$B/phys_test"
           "$B/sim_test"
           "$B/net_test"
@@ -75,9 +74,8 @@ jobs:
       - name: Tests
         run: |
           B=../build-native
-          bun tools/terrain_ref.mjs > ref.txt
           "$B/gen_test.exe" > c.txt
-          diff --strip-trailing-cr ref.txt c.txt
+          diff --strip-trailing-cr tests/gen_golden.txt c.txt   # determinism gate (C golden)
           "$B/phys_test.exe"
           "$B/sim_test.exe"
           "$B/net_test.exe"
@@ -100,9 +98,8 @@ jobs:
       - name: Tests
         run: |
           B=../build-native
-          bun tools/terrain_ref.mjs > ref.txt
           "$B/gen_test" > c.txt
-          diff ref.txt c.txt
+          diff --strip-trailing-cr tests/gen_golden.txt c.txt   # determinism gate (C golden)
           "$B/phys_test"
           "$B/sim_test"
           "$B/net_test"

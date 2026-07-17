@@ -1,6 +1,9 @@
+// STALE / RETIRED FROM THE GATE. craft's gen has forked from the legacy JS (JS
+// cross-play was dropped); the determinism gate is now a committed C golden
+// (tests/gen_golden.txt) vs gen_test.exe, NOT this file. Kept only as a snapshot
+// of the original JS terrain. Do not treat a diff against this as authoritative.
+//
 // Reference terrain dump from the ORIGINAL JS implementation (game.js copy).
-// Run: bun tools/terrain_ref.mjs > ref.txt   (node works too)
-// Compare against the C port: build/gen_test.exe > c.txt ; diff ref.txt c.txt
 // Functions below are copied verbatim from craft_js/game.js (post pow->sqrt patch).
 
 const CHUNK = 16, WORLD_H = 64, SEA_Y = 16;

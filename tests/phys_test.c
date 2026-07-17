@@ -38,8 +38,14 @@ int main(void) {
   for (int i = 0; i < 60; i++) update_player(&fwd, 1.0f / 60.0f);
   CHECK(zb - player.z < 0.75, "stone wall stops forward movement");
 
-  // 4) fall damage: teleport 10 blocks up, drop
-  player.y += 10; player.vy = 0;
+  // 4) fall damage: controlled 10-block drop onto a clean stone platform.
+  // Decoupled from generated terrain (a plain patch at the spawn was incidental)
+  // so terrain changes can't perturb the drop distance.
+  for (int dx = -1; dx <= 1; dx++)
+    for (int dz = -1; dz <= 1; dz++)
+      set_voxel(dx, 40, dz, B_STONE);
+  player.x = 0.5; player.z = 0.5;
+  player.y = 51; player.vy = 0;             // feet 10 blocks above the platform top (y=41)
   int hp0 = player.health;
   for (int i = 0; i < 300; i++) update_player(&none, 1.0f / 60.0f);
   CHECK(player.on_ground, "lands after 10-block drop");
