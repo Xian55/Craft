@@ -260,6 +260,7 @@ static const char *SOLID_FS =
   "  vec4 texel = " TEX2D "(texture0, uv);\n"
   "  if (texel.a < 0.5) discard;\n"
   "  float light = max(fragColor.g, fragColor.r * uDaylight);\n"
+  "  light = max(light, 0.14);\n"   // ambient floor: caves / deep night stay dim, never pitch black
   "  " FRAGCOLOR " = vec4(texel.rgb * light, 1.0) * colDiffuse;\n"
   "}\n";
 
