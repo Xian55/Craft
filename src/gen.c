@@ -67,24 +67,26 @@ int terrain_height(int x, int z) {
     return h < 1 ? 1 : h;
   }
   double land = (cont - 0.42) / 0.58;       // 0 at coast .. 1 inland
-  double coast = land * 3.0; if (coast > 1.0) coast = 1.0;   // gentle beaches
+  double coast = land * 2.0; if (coast > 1.0) coast = 1.0;   // gentle beaches
 
-  // rolling base hills. hills^2.5 as mul+sqrt (correctly rounded; pow is not).
-  double hills = fbm(dx * 0.018, dz * 0.018, 5);
-  double relief = hills * hills * sqrt(hills) * 26.0;
+  // rolling base hills: a small flat floor + hills^2 (gentler than ^2.5 so
+  // valleys don't lie dead flat and the hills stand up more).
+  double hills = fbm(dx * 0.016, dz * 0.016, 5);
+  double relief = (0.15 + hills * hills) * 28.0;
 
-  // mountains: a low-freq mask gates ridged noise, so ranges cluster instead of
-  // spiking everywhere. ridge = 1-|2n-1| makes sharp crests along noise lines.
-  double mask = fbm(dx * 0.0016 + 1000.0, dz * 0.0016 + 1000.0, 3);
-  double m = (mask - 0.55) / 0.45;          // <=0 lowland, ramps to 1 alpine
+  // mountains: a low-freq mask gates ridged noise so ranges cluster; a broad
+  // rise (ridge) plus sharp crests (ridge^2), scaled by the mask (m, not m^2)
+  // and a big amplitude so peaks tower toward the world ceiling and snow-cap.
+  double mask = fbm(dx * 0.0015 + 1000.0, dz * 0.0015 + 1000.0, 3);
+  double m = (mask - 0.42) / 0.58;          // <=0 lowland, ramps to 1 alpine
   if (m > 0.0) {
     if (m > 1.0) m = 1.0;
-    double rn = fbm(dx * 0.01 + 2000.0, dz * 0.01 + 2000.0, 5);
+    double rn = fbm(dx * 0.009 + 2000.0, dz * 0.009 + 2000.0, 5);
     double ridge = 1.0 - fabs(2.0 * rn - 1.0);
-    relief += m * m * ridge * ridge * 34.0;
+    relief += m * (ridge * 26.0 + ridge * ridge * 48.0);
   }
 
-  double height = land * 4.0 + relief * coast;
+  double height = land * 3.0 + relief * coast;
 
   // rivers: a thin winding ridge band carves a fixed-depth channel; where it
   // dips below SEA_Y, gen_chunk_data fills it with water (lowland rivers hold
@@ -115,10 +117,12 @@ static int get_is_air(const uint8_t *blocks, int lx, int y, int lz) {
 // Biomes (forked): low-freq temperature + humidity noise pick the surface
 // palette and tree density; peaks above the snow line are always snow-capped.
 enum { BIOME_PLAINS, BIOME_DESERT, BIOME_FOREST, BIOME_SNOW };
-#define SNOW_LINE (SEA_Y + 30)
+// Altitude surface bands (dithered by a per-column hash so the lines aren't hard
+// contours): grass/biome -> bare ROCK -> SNOW cap. Trees stop at the rock line.
+#define ROCK_LINE (SEA_Y + 20)   // 36: bare stone above this
+#define SNOW_LINE (SEA_Y + 30)   // 46: snow cap above this
 
-static int biome_at(int wx, int wz, int h) {
-  if (h >= SNOW_LINE) return BIOME_SNOW;     // alpine caps regardless of climate
+static int biome_at(int wx, int wz) {          // climate only (altitude handled separately)
   double temp  = fbm((double)wx * 0.0009 + 8000.0, (double)wz * 0.0009 + 8000.0, 3);
   double humid = fbm((double)wx * 0.0009 + 9000.0, (double)wz * 0.0009 + 9000.0, 3);
   if (temp < 0.44) return BIOME_SNOW;                    // cold
@@ -204,13 +208,18 @@ void gen_chunk_data(int cx, int cz, uint8_t *blocks, uint8_t *water) {
     for (int lz = 0; lz < CHUNK; lz++) {
       int wx = cx * CHUNK + lx, wz = cz * CHUNK + lz;
       int h = terrain_height(wx, wz);
-      int biome = biome_at(wx, wz, h);
-      // surface (y==h) + the y>h-3 sub-band vary by biome; beaches stay sand.
+      int biome = biome_at(wx, wz);
+      // Surface + sub-band: altitude ROCK then SNOW bands (dithered by a per-
+      // column hash so the lines aren't hard contours) layered over the climate
+      // biome, so mountains grade grass -> bare rock -> snow cap, not grass->snow.
+      double alt = h + (js_hash2((double)wx * 7.0 + 1.0, (double)wz * 7.0 + 2.0) - 0.5) * 7.0;
       uint8_t top, sub;
-      if (h <= SEA_Y + 1)             { top = B_SAND;  sub = B_SAND; }
-      else if (biome == BIOME_DESERT) { top = B_SAND;  sub = B_SAND; }
-      else if (biome == BIOME_SNOW)   { top = B_SNOW;  sub = B_DIRT; }
-      else                            { top = B_GRASS; sub = B_DIRT; }
+      if (h <= SEA_Y + 1)             { top = B_SAND;  sub = B_SAND;  }   // beach
+      else if (alt >= SNOW_LINE)      { top = B_SNOW;  sub = B_STONE; }   // snow cap
+      else if (alt >= ROCK_LINE)      { top = B_STONE; sub = B_STONE; }   // bare rock
+      else if (biome == BIOME_DESERT) { top = B_SAND;  sub = B_SAND;  }
+      else if (biome == BIOME_SNOW)   { top = B_SNOW;  sub = B_DIRT;  }   // cold-biome snow (low)
+      else                            { top = B_GRASS; sub = B_DIRT;  }
       for (int y = 0; y <= h; y++) {
         uint8_t blk = y == 0 ? B_STONE :
                       y == h ? top :
@@ -226,7 +235,7 @@ void gen_chunk_data(int cx, int cz, uint8_t *blocks, uint8_t *water) {
       // desert bare, snow (taiga) sparse, forest denser
       tree_chance *= biome == BIOME_DESERT ? 0.0 : biome == BIOME_SNOW ? 0.5
                    : biome == BIOME_FOREST ? 1.2 : 1.0;
-      if (h > SEA_Y + 1 && lx >= 2 && lx <= CHUNK - 3 && lz >= 2 && lz <= CHUNK - 3
+      if (h > SEA_Y + 1 && alt < ROCK_LINE && lx >= 2 && lx <= CHUNK - 3 && lz >= 2 && lz <= CHUNK - 3
           && tree_chance > 0.0
           && js_hash2((double)wx * 131.0 + 7.0, (double)wz * 131.0 + 13.0) < tree_chance) {
         int base = h + 1;
