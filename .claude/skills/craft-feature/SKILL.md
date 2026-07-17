@@ -53,7 +53,9 @@ in the `CRAFT_PROF` table.
 4. **Loop profile (no regression)** — if it runs every frame, `CRAFT_PROF=1 ./craft.exe` before and
    after; report the per-phase ms and confirm no regression against the previous run.
 5. **Visual verify** — if it renders, **craft-build** a screenshot with a fixed `CRAFT_POS`/
-   `CRAFT_TIME` and confirm it looks right.
+   `CRAFT_TIME` and confirm it looks right. For **terrain/gen** changes, prefer `gen_map`
+   (`..\craft_raylib_build\native\gen_map.exe cx cz radius out.png`) — a headless top-down map of a
+   whole region shows biomes/rivers/continents at a glance, far faster than flying around in 3D.
 
 ## 7. Self-review, update docs, commit
 Check: correct? within budget? right authority (client/server/master)? no `windows.h`↔raylib clash?
