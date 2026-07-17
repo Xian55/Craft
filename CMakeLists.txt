@@ -121,6 +121,13 @@ if (NOT EMSCRIPTEN)
   target_include_directories(net_test PRIVATE src)
   target_link_libraries(net_test m)
 
+  # Headless top-down terrain map (squaremap-style) for fast gen iteration —
+  # reuses gen_chunk_data, writes a PNG via ExportImage (no window/GPU). gen.c
+  # inherits -ffp-contract=off so the map matches the game bit-for-bit.
+  add_executable(gen_map tools/gen_map.c src/gen.c)
+  target_include_directories(gen_map PRIVATE src vendor)
+  target_link_libraries(gen_map raylib m)
+
   # Perf + memory gate: Release-only micro-benchmarks with ms + allocation budgets
   # (bench_test.exe, nonzero on any breach). Headless — mirrors sim_test's link set
   # (known good with mesh+light). CRAFT_BENCH_BUILD unlocks the no-upload mesh seam;

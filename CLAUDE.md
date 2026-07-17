@@ -35,6 +35,7 @@ gcc/mingw32-make come from WinLibs (winget, not on PATH in every shell — see m
 - `phys_test.exe`, `sim_test.exe` (fluids/TNT/sand/crafting), `net_test.exe` (codec golden bytes + interpolation) — in `..\craft_raylib_build\native`.
 - `craft.exe --server-test` — server self-test (edits-file goldens, relay goldens, RFC 6455 accept vector, players.json round-trip, batch split).
 - `bun tools\e2e_net.mjs` — live wire-spec e2e against `craft --server` (join order, 20 Hz relay, replay, heartbeat, reject).
+- `gen_map [cx cz radius out.png]` — headless top-down terrain map (squaremap-style; `tools/gen_map.c`) for eyeballing gen changes (biomes/rivers/continents/relief) fast: reuses `gen_chunk_data`, hillshaded surface-block colors + water depth, PNG via `ExportImage` (no window/GPU). NOT a gate — the fast way to verify `gen.c` visually instead of flying around in 3D.
 - `bench_test.exe` — Release-only, native-Windows perf+memory gate (`bench/`): micro-benchmarks the hot paths (gen/mesh/light/fluids) with ms + allocation budgets, nonzero on breach. Windows-only target (windows.h/psapi + `-Wl,--wrap`; budgets calibrated on the dev box) — not a cross-platform CI check. Adds a `CRAFT_BENCH` macro (constructor-registered), a QPC clock, a `-Wl,--wrap` malloc shim, and a `CRAFT_BENCH_BUILD` `#ifdef` seam in mesh.c (`mesh_bench_solid`, build-without-upload) — shipping `craft` is byte-identical. See skill `craft-bench`; complements `CRAFT_PROF` (whole loop) + F3 metrics (live).
 
 ## Architecture (src/)
