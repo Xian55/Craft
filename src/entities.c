@@ -319,19 +319,30 @@ static bool pig_wet(double px, double py, double pz) {
 }
 
 #include "gen.h"
+// Pick a spot 2-7 blocks from the player, on land, at a height within a few
+// blocks of the player's, so spawned entities are actually visible (not stranded
+// on a distant cliff/peak — the old far, terrain-height spawn was invisible on
+// dramatic terrain). Falls back to right beside the player (flying / over water).
+static void spawn_near_player(float *ox, float *oy, float *oz) {
+  int px = (int)floor(player.x), pz = (int)floor(player.z);
+  for (int tries = 0; tries < 40; tries++) {
+    int x = px + (GetRandomValue(0, 1) ? 1 : -1) * (2 + GetRandomValue(0, 5));
+    int z = pz + (GetRandomValue(0, 1) ? 1 : -1) * (2 + GetRandomValue(0, 5));
+    int h = terrain_height(x, z);
+    if (h <= SEA_Y) continue;                                 // land only
+    if (fabs((double)(h + 1) - player.y) > 6.0) continue;     // near the player's height
+    *ox = x + 0.5f; *oy = (float)(h + 1); *oz = z + 0.5f;
+    return;
+  }
+  *ox = player.x + 2.0f; *oy = (float)player.y; *oz = player.z + 1.5f;
+}
+
 void spawn_pigs(int n) {
   for (int k = 0; k < n; k++) {
-    int x = 0, z = 0; bool ok = false;
-    for (int tries = 0; tries < 30 && !ok; tries++) {
-      x = (int)floor(player.x) + (GetRandomValue(0, 1) ? 1 : -1) * (6 + GetRandomValue(0, 19));
-      z = (int)floor(player.z) + (GetRandomValue(0, 1) ? 1 : -1) * (6 + GetRandomValue(0, 19));
-      if (terrain_height(x, z) > SEA_Y) ok = true;
-    }
-    if (!ok) continue;
+    float x, y, z; spawn_near_player(&x, &y, &z);
     for (int i = 0; i < MAX_PIGS; i++)
       if (!pigs[i].used) {
-        pigs[i] = (Pig){ x + 0.5, terrain_height(x, z) + 1, z + 0.5, 0,
-                         (float)GetRandomValue(0, 628) / 100.0f, 0, 6, true };
+        pigs[i] = (Pig){ x, y, z, 0, (float)GetRandomValue(0, 628) / 100.0f, 0, 6, true };
         break;
       }
   }
@@ -468,16 +479,10 @@ static bool is_night(void) { return day_time > 0.55 && day_time < 0.95; }
 void spawn_mobs(int type, int n) {
   if (!authority) return;            // mirrors get their mobs from the wire
   for (int k = 0; k < n; k++) {
-    int x = 0, z = 0; bool ok = false;
-    for (int tries = 0; tries < 30 && !ok; tries++) {
-      x = (int)floor(player.x) + (GetRandomValue(0, 1) ? 1 : -1) * (10 + GetRandomValue(0, 14));
-      z = (int)floor(player.z) + (GetRandomValue(0, 1) ? 1 : -1) * (10 + GetRandomValue(0, 14));
-      if (terrain_height(x, z) > SEA_Y) ok = true;
-    }
-    if (!ok) continue;
+    float x, y, z; spawn_near_player(&x, &y, &z);
     for (int i = 0; i < MAX_MOBS; i++)
       if (!mobs[i].used) {
-        mobs[i] = (Mob){ x + 0.5, terrain_height(x, z) + 1, z + 0.5, 0,
+        mobs[i] = (Mob){ x, y, z, 0,
                          (float)GetRandomValue(0, 628) / 100.0f, 0, 0, 0, -1, 20, type, true };
         break;
       }
