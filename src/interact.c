@@ -21,6 +21,7 @@ static float break_time_base(uint8_t b) {
     case B_STONE: case B_STONE_BRICK: return 1.4f;
     case B_COBBLE: case B_BRICK: return 1.2f;
     case B_COAL_ORE: case B_IRON_ORE: return 1.6f;
+    case B_FURNACE: return 1.5f;   case B_GLASS: return 0.3f;
     case B_TORCH: return 0.1f; case B_CHEST: return 0.9f; case B_TNT: return 0.3f;
     default: return 1.0f;
   }
@@ -29,15 +30,25 @@ static int tool_for(uint8_t b) {
   switch (b) {
     case B_DIRT: case B_GRASS: case B_SAND: case B_SNOW: return I_SHOVEL;
     case B_STONE: case B_COBBLE: case B_STONE_BRICK: case B_BRICK:
-    case B_COAL_ORE: case B_IRON_ORE: return I_PICKAXE;
+    case B_COAL_ORE: case B_IRON_ORE: case B_FURNACE: return I_PICKAXE;
     default: return 0;
   }
 }
+// wood and iron tools share a category; iron is the faster tier.
+static int tool_cat(int id) {
+  if (id == I_PICKAXE || id == I_IRON_PICKAXE) return I_PICKAXE;
+  if (id == I_SHOVEL  || id == I_IRON_SHOVEL)  return I_SHOVEL;
+  if (id == I_SWORD   || id == I_IRON_SWORD)   return I_SWORD;
+  return 0;
+}
+static bool is_iron_tool(int id) {
+  return id == I_IRON_PICKAXE || id == I_IRON_SHOVEL || id == I_IRON_SWORD;
+}
 static float break_time_for(uint8_t block) {
   float t = break_time_base(block);
-  Stack *held = &slots[sel_slot];
-  if (held->id && tool_for(block) == held->id) t *= 0.35f;
-  else if (held->id == I_SWORD && block == B_LEAVES) t *= 0.5f;
+  int held = slots[sel_slot].id, need = tool_for(block);
+  if (need && tool_cat(held) == need) t *= is_iron_tool(held) ? 0.2f : 0.35f;   // iron faster
+  else if (tool_cat(held) == I_SWORD && block == B_LEAVES) t *= is_iron_tool(held) ? 0.35f : 0.5f;
   return t;
 }
 

@@ -11,9 +11,12 @@ Stack cursor_stack;
 
 bool is_tool(int id) {
   return id == I_SHOVEL || id == I_PICKAXE || id == I_SWORD
-      || id == I_BUCKET || id == I_WATER_BUCKET || id == I_LAVA_BUCKET;
+      || id == I_BUCKET || id == I_WATER_BUCKET || id == I_LAVA_BUCKET
+      || id == I_IRON_PICKAXE || id == I_IRON_SWORD || id == I_IRON_SHOVEL;
 }
-bool is_block(int id) { return id >= B_GRASS && id <= B_TNT; }
+// placeable blocks: the original range (grass..tnt) plus the new craftable
+// blocks (furnace, glass). Snow/ores stay natural-only (not placeable).
+bool is_block(int id) { return (id >= B_GRASS && id <= B_TNT) || id == B_FURNACE || id == B_GLASS; }
 int  stack_max(int id) { return is_tool(id) ? 1 : STACK_MAX; }
 
 int item_count(int id) {
@@ -46,7 +49,8 @@ bool remove_item(int id, int n) {
 int drop_of(int block) {
   if (block == B_GRASS) return B_DIRT;
   if (block == B_STONE) return B_COBBLE;
-  return block;
+  if (block == B_COAL_ORE) return I_COAL;      // coal ore -> coal item (fuel)
+  return block;                                // iron ore drops itself (smelt -> ingot)
 }
 
 // Localized names via assets/lang/<code>.lang (see lang.c).
@@ -65,6 +69,11 @@ const char *item_name(int id) {
     case I_SWORD: return tr("item.sword");        case I_BUCKET: return tr("item.bucket");
     case I_WATER_BUCKET: return tr("item.water_bucket"); case I_PORK: return tr("item.pork");
     case I_STICK: return tr("item.stick");        case I_LAVA_BUCKET: return tr("item.lava_bucket");
+    case B_FURNACE: return tr("item.furnace");    case B_GLASS: return tr("item.glass");
+    case I_COAL: return tr("item.coal");          case I_IRON_INGOT: return tr("item.iron_ingot");
+    case I_COOKED_PORK: return tr("item.cooked_pork");
+    case I_IRON_PICKAXE: return tr("item.iron_pickaxe"); case I_IRON_SWORD: return tr("item.iron_sword");
+    case I_IRON_SHOVEL: return tr("item.iron_shovel");
     default: return "?";
   }
 }
@@ -81,6 +90,10 @@ void item_color(int id, uint8_t rgb[3]) {
     case B_SNOW: c = 0xf4f8ff; break;
     case B_COAL_ORE: c = 0x4a4a4a; break; case B_IRON_ORE: c = 0xc8a082; break;
     case B_TNT: c = 0xc0392b; break;  case I_LAVA_BUCKET: c = 0xe2560f; break;
+    case B_FURNACE: c = 0x6f6f6f; break; case B_GLASS: c = 0xbfe0f0; break;
+    case I_COAL: c = 0x1c1c1c; break; case I_IRON_INGOT: c = 0xd8d8e0; break;
+    case I_COOKED_PORK: c = 0xc07845; break;
+    case I_IRON_PICKAXE: case I_IRON_SWORD: case I_IRON_SHOVEL: c = 0xcfd2da; break;
     default: c = 0xccaa88; break;
   }
   rgb[0] = (uint8_t)(c >> 16); rgb[1] = (uint8_t)(c >> 8); rgb[2] = (uint8_t)c;
@@ -95,6 +108,9 @@ int item_tile(int id) {
     case B_STONE: return 9;   case B_COBBLE: return 10; case B_DIRT: return 11;
     case B_TORCH: return 12;  case B_LEAVES: return 13; case I_LAVA_BUCKET: return 14;
     case B_TNT: return 15;
+    case I_COAL: return 16;   case I_IRON_INGOT: return 17; case I_COOKED_PORK: return 18;
+    case I_IRON_PICKAXE: return 19; case I_IRON_SWORD: return 20; case I_IRON_SHOVEL: return 21;
+    case B_FURNACE: return 22; case B_GLASS: return 23;
     default: return -1;
   }
 }
@@ -103,6 +119,7 @@ int item_tile(int id) {
 #define P B_PLANKS
 #define C B_COBBLE
 #define S I_STICK
+#define Ir I_IRON_INGOT
 const Recipe RECIPES[] = {
   { .h = 0, .w = 0, .shapeless = { B_WOOD }, .n_shapeless = 1, .out_id = P, .out_n = 4 },
   { .shape = {{P},{P}},            .h = 2, .w = 1, .out_id = S, .out_n = 4 },
@@ -111,13 +128,18 @@ const Recipe RECIPES[] = {
   { .shape = {{P,P,P},{0,S,0},{0,S,0}}, .h = 3, .w = 3, .out_id = I_PICKAXE, .out_n = 1 },
   { .shape = {{P},{S},{S}},        .h = 3, .w = 1, .out_id = I_SHOVEL, .out_n = 1 },
   { .shape = {{P},{P},{S}},        .h = 3, .w = 1, .out_id = I_SWORD, .out_n = 1 },
-  { .shape = {{C,0,C},{0,C,0}},    .h = 2, .w = 3, .out_id = I_BUCKET, .out_n = 1 },
+  { .shape = {{Ir,0,Ir},{0,Ir,0}}, .h = 2, .w = 3, .out_id = I_BUCKET, .out_n = 1 },
   { .shape = {{P},{S}},            .h = 2, .w = 1, .out_id = B_TORCH, .out_n = 4 },
   { .shape = {{P,P,P},{P,0,P},{P,P,P}}, .h = 3, .w = 3, .out_id = B_CHEST, .out_n = 1 },
+  { .shape = {{C,C,C},{C,0,C},{C,C,C}}, .h = 3, .w = 3, .out_id = B_FURNACE, .out_n = 1 },
+  { .shape = {{Ir,Ir,Ir},{0,S,0},{0,S,0}}, .h = 3, .w = 3, .out_id = I_IRON_PICKAXE, .out_n = 1 },
+  { .shape = {{Ir},{S},{S}},       .h = 3, .w = 1, .out_id = I_IRON_SHOVEL, .out_n = 1 },
+  { .shape = {{Ir},{Ir},{S}},      .h = 3, .w = 1, .out_id = I_IRON_SWORD, .out_n = 1 },
 };
 #undef P
 #undef C
 #undef S
+#undef Ir
 const int N_RECIPES = (int)(sizeof(RECIPES) / sizeof(RECIPES[0]));
 
 // trimGrid + shapedMatch (game.js:1772-1789)

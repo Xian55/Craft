@@ -25,6 +25,14 @@ item.water_bucket=Vizes vodor
 item.pork=Hus
 item.stick=Bot
 item.lava_bucket=Lavas vodor
+item.furnace=Kemence
+item.glass=Uveg
+item.coal=Szen
+item.iron_ingot=Vasrud
+item.cooked_pork=Sult hus
+item.iron_pickaxe=Vas csakany
+item.iron_sword=Vas kard
+item.iron_shovel=Vas lapat
 
 hud.held=Kezben: %s (%d db)
 hud.held_empty=Kezben: - (ures rekesz)

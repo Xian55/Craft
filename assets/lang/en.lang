@@ -25,6 +25,14 @@ item.water_bucket=Water Bucket
 item.pork=Porkchop
 item.stick=Stick
 item.lava_bucket=Lava Bucket
+item.furnace=Furnace
+item.glass=Glass
+item.coal=Coal
+item.iron_ingot=Iron Ingot
+item.cooked_pork=Cooked Porkchop
+item.iron_pickaxe=Iron Pickaxe
+item.iron_sword=Iron Sword
+item.iron_shovel=Iron Shovel
 
 hud.held=In hand: %s (x%d)
 hud.held_empty=In hand: - (empty slot)
