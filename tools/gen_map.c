@@ -2,8 +2,10 @@
 // Reuses the deterministic gen_chunk_data (no window/GPU), colors each column by
 // its surface block + water depth, hillshades by height, writes a PNG via
 // raylib's ExportImage (CPU only, no GL context needed).
-//   gen_map [centerX centerZ radius out.png]     defaults: 0 0 768 map.png
+//   gen_map [centerX centerZ radius out.png [sliceY]]   defaults: 0 0 768 map.png
 // radius = half-size in blocks, so the image is (2*radius) square.
+// sliceY (optional): render the block at that Y as a flat cross-section (air =
+// dark) instead of the hillshaded surface — for eyeballing ore veins / caves.
 #include "gen.h"
 #include "config.h"
 #include "raylib.h"
@@ -21,6 +23,8 @@ static void surf_color(uint8_t b, unsigned char *r, unsigned char *g, unsigned c
     case B_STONE:  *r = 138; *g = 138; *bl = 138; break;
     case B_WOOD:   *r = 110; *g = 80;  *bl = 48;  break;
     case B_LEAVES: *r = 54;  *g = 118; *bl = 46;  break;
+    case B_COAL_ORE: *r = 40;  *g = 40;  *bl = 44;  break;
+    case B_IRON_ORE: *r = 200; *g = 152; *bl = 108; break;
     default:       *r = 150; *g = 150; *bl = 150; break;
   }
 }
@@ -30,6 +34,7 @@ int main(int argc, char **argv) {
   int cz0 = argc > 2 ? atoi(argv[2]) : 0;
   int R   = argc > 3 ? atoi(argv[3]) : 768;
   const char *out = argc > 4 ? argv[4] : "map.png";
+  int sliceY = argc > 5 ? atoi(argv[5]) : -1;   // >=0: flat cross-section at Y
   if (R < 16) R = 16;
   if (R > 2048) R = 2048;                 // cap ~16M px (~128 MB working buffers)
   int W = 2 * R, H = 2 * R;
@@ -51,13 +56,21 @@ int main(int argc, char **argv) {
         for (int lx = 0; lx < CHUNK; lx++) {
           int i = ccx * CHUNK + lx - wx0, j = ccz * CHUNK + lz - wz0;
           if (i < 0 || i >= W || j < 0 || j >= H) continue;
+          unsigned char r, g, b;
+          if (sliceY >= 0) {              // flat cross-section at Y (ore/cave view)
+            uint8_t blk = blocks[LI(lx, sliceY, lz)];
+            if (blk == B_AIR) { r = 22; g = 22; b = 32; }   // empty / cave
+            else surf_color(blk, &r, &g, &b);
+            px[(size_t)j * W + i] = (Color){ r, g, b, 255 };
+            hs[(size_t)j * W + i] = 0;    // flat: no hillshade
+            continue;
+          }
           int st = -1, wt = -1;
           for (int y = WORLD_H - 1; y >= 0; y--) {
             if (st < 0 && blocks[LI(lx, y, lz)] != B_AIR) st = y;
             if (wt < 0 && water[LI(lx, y, lz)] > 0) wt = y;
             if (st >= 0 && wt >= 0) break;
           }
-          unsigned char r, g, b;
           if (wt > st) {                  // water surface above land -> blue by depth
             int depth = wt - st; if (depth > 12) depth = 12;
             float t = depth / 12.0f;
