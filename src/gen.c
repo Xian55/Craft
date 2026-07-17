@@ -67,24 +67,26 @@ int terrain_height(int x, int z) {
     return h < 1 ? 1 : h;
   }
   double land = (cont - 0.42) / 0.58;       // 0 at coast .. 1 inland
-  double coast = land * 3.0; if (coast > 1.0) coast = 1.0;   // gentle beaches
+  double coast = land * 2.0; if (coast > 1.0) coast = 1.0;   // gentle beaches
 
-  // rolling base hills. hills^2.5 as mul+sqrt (correctly rounded; pow is not).
-  double hills = fbm(dx * 0.018, dz * 0.018, 5);
-  double relief = hills * hills * sqrt(hills) * 26.0;
+  // rolling base hills: a small flat floor + hills^2 (gentler than ^2.5 so
+  // valleys don't lie dead flat and the hills stand up more).
+  double hills = fbm(dx * 0.016, dz * 0.016, 5);
+  double relief = (0.15 + hills * hills) * 28.0;
 
-  // mountains: a low-freq mask gates ridged noise, so ranges cluster instead of
-  // spiking everywhere. ridge = 1-|2n-1| makes sharp crests along noise lines.
-  double mask = fbm(dx * 0.0016 + 1000.0, dz * 0.0016 + 1000.0, 3);
-  double m = (mask - 0.55) / 0.45;          // <=0 lowland, ramps to 1 alpine
+  // mountains: a low-freq mask gates ridged noise so ranges cluster; a broad
+  // rise (ridge) plus sharp crests (ridge^2), scaled by the mask (m, not m^2)
+  // and a big amplitude so peaks tower toward the world ceiling and snow-cap.
+  double mask = fbm(dx * 0.0015 + 1000.0, dz * 0.0015 + 1000.0, 3);
+  double m = (mask - 0.42) / 0.58;          // <=0 lowland, ramps to 1 alpine
   if (m > 0.0) {
     if (m > 1.0) m = 1.0;
-    double rn = fbm(dx * 0.01 + 2000.0, dz * 0.01 + 2000.0, 5);
+    double rn = fbm(dx * 0.009 + 2000.0, dz * 0.009 + 2000.0, 5);
     double ridge = 1.0 - fabs(2.0 * rn - 1.0);
-    relief += m * m * ridge * ridge * 34.0;
+    relief += m * (ridge * 26.0 + ridge * ridge * 48.0);
   }
 
-  double height = land * 4.0 + relief * coast;
+  double height = land * 3.0 + relief * coast;
 
   // rivers: a thin winding ridge band carves a fixed-depth channel; where it
   // dips below SEA_Y, gen_chunk_data fills it with water (lowland rivers hold
