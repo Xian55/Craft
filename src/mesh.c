@@ -19,6 +19,7 @@ enum {
   T_PLANKS = 8, T_COBBLE = 9, T_STONE_BRICK = 10, T_BRICK = 11,
   T_WATER = 12, T_TORCH = 13, T_TNT_SIDE = 14, T_TNT_TOP = 15,
   T_TNT_BOTTOM = 16, T_CHEST = 17, T_SNOW = 18, T_COAL_ORE = 19, T_IRON_ORE = 20,
+  T_FURNACE_FRONT = 21, T_FURNACE_TOP = 22, T_GLASS = 23,
 };
 
 // face: 0=top 1=bottom 2=side (JS uses strings)
@@ -41,6 +42,8 @@ static int tile_for(uint8_t block, int face) {
     case B_SNOW:   return T_SNOW;
     case B_COAL_ORE: return T_COAL_ORE;
     case B_IRON_ORE: return T_IRON_ORE;
+    case B_FURNACE: return face == F_SIDE ? T_FURNACE_FRONT : T_FURNACE_TOP;
+    case B_GLASS:  return T_GLASS;
     case B_TNT:    return face == F_TOP ? T_TNT_TOP : face == F_BOTTOM ? T_TNT_BOTTOM : T_TNT_SIDE;
     default:       return T_STONE;
   }

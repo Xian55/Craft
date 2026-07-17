@@ -299,7 +299,7 @@ static void draw_panel(void) {
 
 // ============================== chat & commands ==============================
 static int resolve_item(const char *name) {
-  for (int id = 1; id <= 27; id++) {
+  for (int id = 1; id <= 33; id++) {   // spans blocks (1..18) + items (20..33)
     const char *n = item_name(id);
     if (strcmp(n, "?") == 0) continue;
     bool eq = true;

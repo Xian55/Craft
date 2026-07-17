@@ -14,6 +14,12 @@
 #define I_PORK         25
 #define I_STICK        26
 #define I_LAVA_BUCKET  27
+#define I_COAL         28
+#define I_IRON_INGOT   29
+#define I_COOKED_PORK  30
+#define I_IRON_PICKAXE 31
+#define I_IRON_SWORD   32
+#define I_IRON_SHOVEL  33
 
 #define HOTBAR_SIZE 9
 #define INV_SIZE    36

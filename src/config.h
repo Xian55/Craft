@@ -28,6 +28,8 @@
 #define B_SNOW        14
 #define B_COAL_ORE    15
 #define B_IRON_ORE    16
+#define B_FURNACE     17
+#define B_GLASS       18
 
 // Water array semantics: 0 none, 1..8 flowing water, 9 source,
 // 11..18 flowing lava, 19 lava source.

@@ -82,8 +82,8 @@ int main(void) {
   for (int i = 0; i < 9; i++) if (i != 4) craft_grid[i] = (Stack){ B_PLANKS, 1 };
   CHECK(match_recipe(&oid, &on) && oid == B_CHEST && on == 1, "shaped with hole: 8-plank ring -> chest");
   memset(craft_grid, 0, sizeof(craft_grid));
-  craft_grid[0] = (Stack){ B_COBBLE, 1 }; craft_grid[2] = (Stack){ B_COBBLE, 1 }; craft_grid[4] = (Stack){ B_COBBLE, 1 };
-  CHECK(match_recipe(&oid, &on) && oid == I_BUCKET, "shaped with holes: bucket V");
+  craft_grid[0] = (Stack){ I_IRON_INGOT, 1 }; craft_grid[2] = (Stack){ I_IRON_INGOT, 1 }; craft_grid[4] = (Stack){ I_IRON_INGOT, 1 };
+  CHECK(match_recipe(&oid, &on) && oid == I_BUCKET, "shaped with holes: iron bucket V");
 
   // 8) inventory add/remove round trip
   memset(slots, 0, sizeof(slots));
