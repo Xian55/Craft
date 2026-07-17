@@ -112,22 +112,47 @@ static int get_is_air(const uint8_t *blocks, int lx, int y, int lz) {
   return blocks[LI(lx, y, lz)] == B_AIR;
 }
 
-// game.js:111 — genChunk(cx, cz)
+// Biomes (forked): low-freq temperature + humidity noise pick the surface
+// palette and tree density; peaks above the snow line are always snow-capped.
+enum { BIOME_PLAINS, BIOME_DESERT, BIOME_FOREST, BIOME_SNOW };
+#define SNOW_LINE (SEA_Y + 30)
+
+static int biome_at(int wx, int wz, int h) {
+  if (h >= SNOW_LINE) return BIOME_SNOW;     // alpine caps regardless of climate
+  double temp  = fbm((double)wx * 0.0009 + 8000.0, (double)wz * 0.0009 + 8000.0, 3);
+  double humid = fbm((double)wx * 0.0009 + 9000.0, (double)wz * 0.0009 + 9000.0, 3);
+  if (temp < 0.44) return BIOME_SNOW;                    // cold
+  if (temp > 0.58 && humid < 0.46) return BIOME_DESERT;  // hot + dry
+  if (humid > 0.56) return BIOME_FOREST;                 // wet
+  return BIOME_PLAINS;
+}
+
+// genChunk(cx, cz) — forked: biome-aware surface + tree density
 void gen_chunk_data(int cx, int cz, uint8_t *blocks, uint8_t *water) {
   for (int i = 0; i < CHUNK_VOL; i++) { blocks[i] = 0; water[i] = 0; }
   for (int lx = 0; lx < CHUNK; lx++)
     for (int lz = 0; lz < CHUNK; lz++) {
       int wx = cx * CHUNK + lx, wz = cz * CHUNK + lz;
       int h = terrain_height(wx, wz);
+      int biome = biome_at(wx, wz, h);
+      // surface (y==h) + the y>h-3 sub-band vary by biome; beaches stay sand.
+      uint8_t top, sub;
+      if (h <= SEA_Y + 1)             { top = B_SAND;  sub = B_SAND; }
+      else if (biome == BIOME_DESERT) { top = B_SAND;  sub = B_SAND; }
+      else if (biome == BIOME_SNOW)   { top = B_SNOW;  sub = B_DIRT; }
+      else                            { top = B_GRASS; sub = B_DIRT; }
       for (int y = 0; y <= h; y++) {
         blocks[LI(lx, y, lz)] =
           y == 0 ? B_STONE :
-          y == h ? (h <= SEA_Y + 1 ? B_SAND : B_GRASS) :
-          y > h - 3 ? B_DIRT : B_STONE;
+          y == h ? top :
+          y > h - 3 ? sub : B_STONE;
       }
       if (h < SEA_Y) for (int y = h + 1; y <= SEA_Y; y++) water[LI(lx, y, lz)] = 9;
       double forest = fbm((double)wx * 0.012 + 500.0, (double)wz * 0.012 + 500.0, 3);
       double tree_chance = forest > 0.6 ? 0.09 : forest > 0.45 ? 0.02 : 0.0;
+      // desert bare, snow (taiga) sparse, forest denser
+      tree_chance *= biome == BIOME_DESERT ? 0.0 : biome == BIOME_SNOW ? 0.5
+                   : biome == BIOME_FOREST ? 1.2 : 1.0;
       if (h > SEA_Y + 1 && lx >= 2 && lx <= CHUNK - 3 && lz >= 2 && lz <= CHUNK - 3
           && tree_chance > 0.0
           && js_hash2((double)wx * 131.0 + 7.0, (double)wz * 131.0 + 13.0) < tree_chance) {
