@@ -3,6 +3,11 @@ project(craft_raylib C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# Headless tests + dev tools (gen_test/phys/sim/net, gen_map, bench_test). ON by
+# default; the server Docker image builds with -DCRAFT_DEV_TOOLS=OFF so it only
+# configures the `craft` target and never needs tests/ or tools/ in its context.
+option(CRAFT_DEV_TOOLS "Build headless tests + dev tools" ON)
+
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
 # Once raylib is cloned, don't hit git again on reconfigure (delete the
@@ -102,7 +107,7 @@ elseif (WIN32)
 endif()
 
 # Terrain determinism harness (native only; no raylib dependency).
-if (NOT EMSCRIPTEN)
+if (NOT EMSCRIPTEN AND CRAFT_DEV_TOOLS)
   add_executable(gen_test tests/gen_test.c src/gen.c)
   target_include_directories(gen_test PRIVATE src)
   target_link_libraries(gen_test m)

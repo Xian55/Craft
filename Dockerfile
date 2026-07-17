@@ -17,13 +17,12 @@ WORKDIR /src
 ARG CRAFT_VERSION=dev
 COPY CMakeLists.txt ./
 COPY src/ src/
-COPY tests/ tests/
-COPY tools/ tools/
 COPY assets/ assets/
-# `cmake -S . -B build` configures ALL targets, so every add_executable source
-# (tests/*.c, tools/gen_map.c) must exist even though we only --build craft.
+# Server image builds only the `craft` target. -DCRAFT_DEV_TOOLS=OFF skips the
+# test + dev-tool targets (gen_test, gen_map, bench_test, ...), so their sources
+# (tests/, tools/, bench/) aren't needed in the build context.
 RUN --mount=type=cache,target=/src/build \
-    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCRAFT_VERSION="${CRAFT_VERSION}" \
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCRAFT_DEV_TOOLS=OFF -DCRAFT_VERSION="${CRAFT_VERSION}" \
     && cmake --build build -j"$(nproc)" --target craft \
     && cp build/craft /craft
 
