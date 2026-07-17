@@ -143,9 +143,63 @@ static uint8_t orify(int wx, int wy, int wz, int h) {
   return B_STONE;
 }
 
+// Caves — MC 1.18-style "noise caves", stateless + deterministic (no Perlin
+// worms, which need cross-chunk state our per-chunk gen can't carry):
+//   * cheese    — one 3D value-noise field over a high threshold -> big caverns
+//   * spaghetti — the intersection of TWO isosurfaces (|n-0.5| < eps on both
+//                 fields) -> long, winding, interconnected tunnels
+// Each field is a coarse hashed lattice (freq ~0.04-0.08) cached once per chunk
+// and trilinearly interpolated per voxel, so is_cave does ZERO hashing in the
+// loop; the spaghetti B field is only sampled when A's isosurface already hit.
+static double smooth1(double t) { return t * t * (3.0 - 2.0 * t); }
+typedef struct { double lat[6][12][6]; int lx0, lz0; double fx, fy; int seed; } CaveField;
+static CaveField g_cheese = { .fx = 0.040, .fy = 0.085, .seed = 0 };
+static CaveField g_spagA  = { .fx = 0.080, .fy = 0.080, .seed = 7001 };
+static CaveField g_spagB  = { .fx = 0.080, .fy = 0.080, .seed = 43051 };
+
+static double cave_hash(int x, int y, int z, int seed) {   // 0..1 at a lattice point
+  return js_hash2((double)x + (double)z * 57.0 + seed, (double)y * 131.0 - (double)z * 19.0 - seed);
+}
+static void field_build(CaveField *f, int x0, int z0) {
+  f->lx0 = (int)floor(x0 * f->fx);
+  f->lz0 = (int)floor(z0 * f->fx);
+  int lx1 = (int)floor((x0 + CHUNK - 1) * f->fx);
+  int lz1 = (int)floor((z0 + CHUNK - 1) * f->fx);
+  int LX = lx1 - f->lx0 + 2, LZ = lz1 - f->lz0 + 2;
+  int LY = (int)floor((WORLD_H - 1) * f->fy) + 2;
+  for (int ix = 0; ix < LX; ix++)
+    for (int iy = 0; iy < LY; iy++)
+      for (int iz = 0; iz < LZ; iz++)
+        f->lat[ix][iy][iz] = cave_hash(f->lx0 + ix, iy, f->lz0 + iz, f->seed);
+}
+static double field_at(const CaveField *f, int wx, int wy, int wz) {
+  double nx = wx * f->fx, ny = wy * f->fy, nz = wz * f->fx;
+  int xi = (int)floor(nx) - f->lx0, yi = (int)floor(ny), zi = (int)floor(nz) - f->lz0;
+  double u = smooth1(nx - floor(nx)), v = smooth1(ny - floor(ny)), w = smooth1(nz - floor(nz));
+  double c000 = f->lat[xi][yi][zi],         c100 = f->lat[xi + 1][yi][zi];
+  double c010 = f->lat[xi][yi + 1][zi],     c110 = f->lat[xi + 1][yi + 1][zi];
+  double c001 = f->lat[xi][yi][zi + 1],     c101 = f->lat[xi + 1][yi][zi + 1];
+  double c011 = f->lat[xi][yi + 1][zi + 1], c111 = f->lat[xi + 1][yi + 1][zi + 1];
+  double x00 = c000 + (c100 - c000) * u, x10 = c010 + (c110 - c010) * u;
+  double x01 = c001 + (c101 - c001) * u, x11 = c011 + (c111 - c011) * u;
+  double y0 = x00 + (x10 - x00) * v, y1 = x01 + (x11 - x01) * v;
+  return y0 + (y1 - y0) * w;
+}
+static void cave_build(int x0, int z0) {
+  field_build(&g_cheese, x0, z0);
+  field_build(&g_spagA, x0, z0);
+  field_build(&g_spagB, x0, z0);
+}
+static int is_cave(int wx, int wy, int wz) {
+  if (field_at(&g_cheese, wx, wy, wz) > 0.835) return 1;                // cheese cavern
+  if (fabs(field_at(&g_spagA, wx, wy, wz) - 0.5) >= 0.060) return 0;    // early out
+  return fabs(field_at(&g_spagB, wx, wy, wz) - 0.5) < 0.060;            // spaghetti tunnel
+}
+
 // genChunk(cx, cz) — forked: biome-aware surface + tree density
 void gen_chunk_data(int cx, int cz, uint8_t *blocks, uint8_t *water) {
   for (int i = 0; i < CHUNK_VOL; i++) { blocks[i] = 0; water[i] = 0; }
+  cave_build(cx * CHUNK, cz * CHUNK);          // cache the cave-noise lattice once
   for (int lx = 0; lx < CHUNK; lx++)
     for (int lz = 0; lz < CHUNK; lz++) {
       int wx = cx * CHUNK + lx, wz = cz * CHUNK + lz;
@@ -162,6 +216,8 @@ void gen_chunk_data(int cx, int cz, uint8_t *blocks, uint8_t *water) {
                       y == h ? top :
                       y > h - 3 ? sub : B_STONE;
         if (blk == B_STONE && y > 0) blk = orify(wx, y, wz, h);   // ore veins in deep stone
+        if (y >= 3 && (blk == B_STONE || blk == B_COAL_ORE || blk == B_IRON_ORE)
+            && is_cave(wx, y, wz)) blk = B_AIR;                    // carve caverns (exposes ore)
         blocks[LI(lx, y, lz)] = blk;
       }
       if (h < SEA_Y) for (int y = h + 1; y <= SEA_Y; y++) water[LI(lx, y, lz)] = 9;
