@@ -9,6 +9,10 @@ description: craft's Release-only micro-benchmark + memory harness (bench_test.e
 **allocation count + bytes** against **memory budgets**. Headless, deterministic, no raylib clock
 (QPC). Exits **nonzero** if any case is over its ms or allocation ceiling — that non-zero is the gate.
 
+Native **Windows** only (the runner uses windows.h/psapi for the QPC clock + peak RSS,
+and `-Wl,--wrap`, which Apple ld64 lacks). The CMake target is `if (WIN32)`-gated, so the
+linux/macos CI jobs skip it — the ms budgets are calibrated on the dev box, not shared CI runners.
+
 ## Run it
 ```bash
 cmake --build ..\craft_raylib_build\native -j --target bench_test
