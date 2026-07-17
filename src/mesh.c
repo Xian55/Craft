@@ -346,9 +346,10 @@ static bool upload(Builder *b, Mesh *out) {
 // Corner-shade / occlusion math is reused verbatim from the old per-face path.
 typedef struct { uint8_t present, cr, cg; int16_t tile; } MaskCell;
 
-static void build_chunk_solid(int cx, int cz) {
-  Chunk *c = ensure_chunk(cx, cz);
-  compute_light(c);           // fresh light for current blocks (JS does this too)
+// Solid geometry for a chunk built into a fresh Builder (NO GPU upload). Split
+// out of build_chunk_solid so the bench harness can time/measure it headless;
+// callers must have relit the chunk (compute_light) first, as before.
+static Builder gen_solid_geo(Chunk *c, int cx, int cz) {
   Builder b = {0};
   int x0 = cx * CHUNK, z0 = cz * CHUNK;
   int len[3] = { CHUNK, WORLD_H, CHUNK };   // per-axis extent; base is (x0,0,z0)
@@ -418,11 +419,33 @@ static void build_chunk_solid(int cx, int cz) {
     }
   }
 
+  return b;
+}
+
+static void build_chunk_solid(int cx, int cz) {
+  Chunk *c = ensure_chunk(cx, cz);
+  compute_light(c);           // fresh light for current blocks (JS does this too)
+  Builder b = gen_solid_geo(c, cx, cz);
   if (getenv("CRAFT_DEBUG"))
     TraceLog(LOG_INFO, "solid chunk %d,%d: verts=%d tris=%d", cx, cz, b.verts, b.tris);
   if (c->has_solid) { UnloadMesh(c->mesh_solid); c->has_solid = false; }
   c->has_solid = upload(&b, &c->mesh_solid);
 }
+
+#ifdef CRAFT_BENCH_BUILD
+// Build a chunk's solid geometry incl. relight but keep it CPU-side (no upload);
+// report the resident bytes raylib would retain after UploadMesh.
+MeshStats mesh_bench_solid(int cx, int cz) {
+  Chunk *c = ensure_chunk(cx, cz);
+  compute_light(c);
+  Builder b = gen_solid_geo(c, cx, cz);
+  MeshStats s = { b.verts, b.tris,
+                  (size_t)b.verts * (3 + 2 + 2) * sizeof(float) + (size_t)b.verts * 4
+                  + (size_t)b.tris * 3 * sizeof(uint16_t) };
+  b_free(&b);
+  return s;
+}
+#endif
 
 // --- Fluids (game.js:575-656) ---
 typedef int (*AmtFn)(int, int, int);

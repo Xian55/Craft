@@ -27,4 +27,13 @@ Material *block_cube_material(void);  // atlas material for the cubes above
 int render_dist_get(void);
 void render_dist_set(int d);
 
+#ifdef CRAFT_BENCH_BUILD
+// Bench-only seam: build a chunk's solid geometry WITHOUT the GPU upload, so the
+// greedy mesher (incl. its relight) can be timed/measured headless. Only the
+// bench_test build defines CRAFT_BENCH_BUILD; the shipping client is byte-identical.
+#include <stddef.h>
+typedef struct { int verts, tris; size_t cpu_bytes; } MeshStats;  // cpu_bytes = the CPU-side copy raylib keeps after UploadMesh
+MeshStats mesh_bench_solid(int cx, int cz);
+#endif
+
 #endif
