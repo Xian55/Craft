@@ -221,3 +221,91 @@ void chest_delete(int x, int y, int z) {
   for (int i = 0; i < MAX_CHESTS; i++)
     if (chests[i].used && chests[i].x == x && chests[i].y == y && chests[i].z == z) { chests[i].used = false; return; }
 }
+
+// --- furnaces / smelting ---
+int smelt_result(int id) {
+  switch (id) {
+    case B_IRON_ORE: return I_IRON_INGOT;
+    case B_SAND:     return B_GLASS;
+    case B_COBBLE:   return B_STONE;
+    case I_PORK:     return I_COOKED_PORK;
+    default:         return 0;
+  }
+}
+float fuel_burn(int id) {
+  switch (id) {
+    case I_COAL:   return 8.0f;
+    case B_WOOD:   return 3.0f;
+    case B_PLANKS: return 2.0f;
+    case B_LEAVES: return 0.6f;
+    default:       return 0.0f;
+  }
+}
+static bool furnace_can_smelt(const FurnaceState *f) {
+  if (f->in.count <= 0) return false;
+  int out = smelt_result(f->in.id);
+  if (!out) return false;
+  return f->out.id == 0 || (f->out.id == out && f->out.count < STACK_MAX);
+}
+// Advance the smelt by (now - last_t) in a bounded loop: each pass either lights
+// a fuel, burns idle time, or completes a smelt, so even a huge elapsed dt (server
+// slept) converges (bounded by fuel+input counts).
+void furnace_advance(FurnaceState *f, double now) {
+  double dt = now - f->last_t;
+  f->last_t = now;
+  if (dt <= 0) return;
+  for (int guard = 0; guard < 100000 && dt > 1e-6; guard++) {
+    if (f->burn <= 0.0f) {                       // need to light fuel
+      if (furnace_can_smelt(f) && fuel_burn(f->fuel.id) > 0.0f) {
+        f->burn_max = fuel_burn(f->fuel.id);
+        f->burn = f->burn_max;
+        if (--f->fuel.count == 0) f->fuel.id = 0;
+      } else {                                   // idle: cool progress, stop
+        f->cook -= (float)dt * 2.0f; if (f->cook < 0) f->cook = 0;
+        break;
+      }
+    }
+    if (!furnace_can_smelt(f)) {                 // lit but nothing valid: burn down
+      double bs = dt < f->burn ? dt : f->burn;
+      f->burn -= (float)bs; dt -= bs;
+      f->cook -= (float)bs * 2.0f; if (f->cook < 0) f->cook = 0;
+      continue;
+    }
+    double step = dt;                            // smelt
+    if (step > f->burn) step = f->burn;
+    if (step > FURNACE_COOK - f->cook) step = FURNACE_COOK - f->cook;
+    f->burn -= (float)step; f->cook += (float)step; dt -= step;
+    if (f->cook >= FURNACE_COOK - 1e-4f) {
+      int out = smelt_result(f->in.id);
+      if (f->out.id == 0) { f->out.id = out; f->out.count = 1; }
+      else f->out.count++;
+      if (--f->in.count == 0) f->in.id = 0;
+      f->cook = 0;
+    }
+  }
+}
+
+typedef struct FurnaceEntry { int x, y, z; FurnaceState st; bool used; } FurnaceEntry;
+#define MAX_FURNACES 256
+static FurnaceEntry furnaces[MAX_FURNACES];
+
+FurnaceState *furnace_peek(int x, int y, int z) {
+  for (int i = 0; i < MAX_FURNACES; i++)
+    if (furnaces[i].used && furnaces[i].x == x && furnaces[i].y == y && furnaces[i].z == z) return &furnaces[i].st;
+  return NULL;
+}
+FurnaceState *furnace_at(int x, int y, int z) {
+  FurnaceState *s = furnace_peek(x, y, z);
+  if (s) return s;
+  for (int i = 0; i < MAX_FURNACES; i++)
+    if (!furnaces[i].used) {
+      furnaces[i].used = true; furnaces[i].x = x; furnaces[i].y = y; furnaces[i].z = z;
+      memset(&furnaces[i].st, 0, sizeof(furnaces[i].st));
+      return &furnaces[i].st;
+    }
+  return &furnaces[0].st;   // full: reuse slot 0
+}
+void furnace_delete(int x, int y, int z) {
+  for (int i = 0; i < MAX_FURNACES; i++)
+    if (furnaces[i].used && furnaces[i].x == x && furnaces[i].y == y && furnaces[i].z == z) { furnaces[i].used = false; return; }
+}

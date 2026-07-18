@@ -39,6 +39,7 @@ hud.held_empty=In hand: - (empty slot)
 hint.click=Click: play | WASD move, Space jump, E bag, T chat, F eat, Q drop
 
 panel.chest=Chest
+panel.furnace=Furnace
 panel.bag=Bag
 panel.craft=Crafting (3x3)
 panel.hint=Left click: whole stack. Right click: half/one. Close: E

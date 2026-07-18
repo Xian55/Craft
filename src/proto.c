@@ -247,6 +247,36 @@ bool proto_dec_sv_chest(const uint8_t *b, size_t n, int32_t *x, uint8_t *y, int3
   return true;
 }
 
+size_t proto_enc_furnace_set(uint8_t *b, int32_t x, uint8_t y, int32_t z, const PSlot *s3) {
+  b[0] = CL_FURNACE_SET;
+  wr_i32(b + 1, x); wr_i32(b + 5, z); b[9] = y;
+  for (int i = 0; i < P_FURN_SLOTS; i++) { wr_u16(b + 10 + i * 4, s3[i].id); wr_u16(b + 12 + i * 4, s3[i].count); }
+  return P_FURN_SET_SIZE;
+}
+size_t proto_enc_sv_furnace(uint8_t *b, int32_t x, uint8_t y, int32_t z, uint8_t flags, const PFurn *f) {
+  b[0] = SV_FURNACE;
+  wr_i32(b + 1, x); wr_i32(b + 5, z); b[9] = y; b[10] = flags;
+  const PSlot sl[3] = { f->in, f->fuel, f->out };
+  for (int i = 0; i < P_FURN_SLOTS; i++) { wr_u16(b + 11 + i * 4, sl[i].id); wr_u16(b + 13 + i * 4, sl[i].count); }
+  wr_f32(b + 23, f->cook); wr_f32(b + 27, f->burn); wr_f32(b + 31, f->burn_max);
+  return P_SV_FURN_SIZE;
+}
+bool proto_dec_furnace_set(const uint8_t *b, size_t n, int32_t *x, uint8_t *y, int32_t *z, PSlot *s3) {
+  if (n < P_FURN_SET_SIZE || b[0] != CL_FURNACE_SET) return false;
+  *x = rd_i32(b + 1); *z = rd_i32(b + 5); *y = b[9];
+  for (int i = 0; i < P_FURN_SLOTS; i++) { s3[i].id = rd_u16(b + 10 + i * 4); s3[i].count = rd_u16(b + 12 + i * 4); }
+  return true;
+}
+bool proto_dec_sv_furnace(const uint8_t *b, size_t n, int32_t *x, uint8_t *y, int32_t *z, uint8_t *flags, PFurn *f) {
+  if (n < P_SV_FURN_SIZE || b[0] != SV_FURNACE) return false;
+  *x = rd_i32(b + 1); *z = rd_i32(b + 5); *y = b[9]; *flags = b[10];
+  f->in.id = rd_u16(b + 11);   f->in.count = rd_u16(b + 13);
+  f->fuel.id = rd_u16(b + 15); f->fuel.count = rd_u16(b + 17);
+  f->out.id = rd_u16(b + 19);  f->out.count = rd_u16(b + 21);
+  f->cook = rd_f32(b + 23); f->burn = rd_f32(b + 27); f->burn_max = rd_f32(b + 31);
+  return true;
+}
+
 bool proto_dec_sv_chat(const uint8_t *b, size_t n, uint32_t *id, char *out, size_t outsz) {
   if (n < 6 || b[0] != SV_CHAT) return false;
   size_t len = b[5];

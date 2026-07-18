@@ -23,13 +23,27 @@ Texture2D entities_items_tex(void);   // items.png, loaded by entities_init
 #define CELL 52
 #define GAP 6
 
-typedef enum { REF_NONE, REF_SLOT, REF_CRAFT, REF_CHEST, REF_RESULT } RefKind;
+typedef enum { REF_NONE, REF_SLOT, REF_CRAFT, REF_CHEST, REF_RESULT,
+               REF_FURN_IN, REF_FURN_FUEL, REF_FURN_OUT } RefKind;
 typedef struct { RefKind kind; int i; } CellRef;
 
 static bool panel_open = false;
 static bool chest_mode = false;
 static Stack *open_chest = NULL;
 static int chest_x, chest_y, chest_z;   // position of the open chest
+
+static bool furnace_mode = false;
+static FurnaceState *open_furnace = NULL;
+static int furn_x, furn_y, furn_z;
+
+// Furnace panel geometry — the SAME math in hit_test and draw_panel. Input slot
+// top-left, fuel below it (fire icon between), output to the right (arrow between).
+static void furnace_cells(float px, float fy, Rectangle *in, Rectangle *fuel, Rectangle *out) {
+  *in   = (Rectangle){ px, fy, CELL, CELL };
+  *fuel = (Rectangle){ px, fy + 2 * (CELL + GAP), CELL, CELL };
+  *out  = (Rectangle){ px + 4 * (CELL + GAP), fy + (CELL + GAP), CELL, CELL };
+}
+#define FURN_ROWS 3   // input / fire / fuel vertical extent
 
 static bool chat_open = false;
 static char chat_input[128];
@@ -133,8 +147,18 @@ static Stack *ref_stack(CellRef r) {
     case REF_SLOT: return &slots[r.i];
     case REF_CRAFT: return &craft_grid[r.i];
     case REF_CHEST: return open_chest ? &open_chest[r.i] : NULL;
+    case REF_FURN_IN:   return open_furnace ? &open_furnace->in : NULL;
+    case REF_FURN_FUEL: return open_furnace ? &open_furnace->fuel : NULL;
+    case REF_FURN_OUT:  return open_furnace ? &open_furnace->out : NULL;
     default: return NULL;
   }
+}
+
+// a player edit to the open furnace: persist to the server (it advances then
+// applies the slots and rebroadcasts). Offline the local cache is authoritative.
+static void furnace_edited(void) {
+  if (furnace_mode && open_furnace && net_active())
+    net_send_furnace_set(furn_x, furn_y, furn_z);
 }
 
 // clickCell (game.js:1990): pick up / put down / merge / swap
@@ -142,6 +166,14 @@ static void click_cell(CellRef r) {
   if (r.kind == REF_RESULT) { take_result(); return; }
   Stack *s = ref_stack(r);
   if (!s) return;
+  if (r.kind == REF_FURN_OUT) {                       // output is take-only
+    if (!cursor_stack.id) { if (s->id) { cursor_stack = *s; s->id = 0; s->count = 0; } }
+    else if (s->id == cursor_stack.id) {
+      int add = stack_max(s->id) - cursor_stack.count; if (add > s->count) add = s->count;
+      cursor_stack.count += add; s->count -= add; if (s->count == 0) s->id = 0;
+    }
+    furnace_edited(); return;
+  }
   if (!cursor_stack.id) {
     if (s->id) { cursor_stack = *s; s->id = 0; s->count = 0; }
   } else if (!s->id) {
@@ -154,6 +186,7 @@ static void click_cell(CellRef r) {
   } else {
     Stack tmp = *s; *s = cursor_stack; cursor_stack = tmp;
   }
+  if (r.kind == REF_FURN_IN || r.kind == REF_FURN_FUEL) furnace_edited();
 }
 
 // rightClickCell (game.js:2008): halve / place one
@@ -161,6 +194,14 @@ static void right_click_cell(CellRef r) {
   if (r.kind == REF_RESULT) { take_result(); return; }
   Stack *s = ref_stack(r);
   if (!s) return;
+  if (r.kind == REF_FURN_OUT) {                       // take-only: grab half
+    if (!cursor_stack.id && s->id) {
+      int take = (s->count + 1) / 2;
+      cursor_stack.id = s->id; cursor_stack.count = take;
+      s->count -= take; if (s->count == 0) s->id = 0;
+    }
+    furnace_edited(); return;
+  }
   if (!cursor_stack.id) {
     if (s->id) {
       int take = (s->count + 1) / 2;
@@ -173,6 +214,7 @@ static void right_click_cell(CellRef r) {
     s->count++; cursor_stack.count--;
   } else return;
   if (cursor_stack.count == 0) cursor_stack.id = 0;
+  if (r.kind == REF_FURN_IN || r.kind == REF_FURN_FUEL) furnace_edited();
 }
 
 static void close_panel(void) {
@@ -181,8 +223,20 @@ static void close_panel(void) {
   for (int i = 0; i < 9; i++)
     if (craft_grid[i].id) { add_item(craft_grid[i].id, craft_grid[i].count); craft_grid[i].id = 0; craft_grid[i].count = 0; }
   if (chest_mode && open_chest) net_send_chest_set(chest_x, chest_y, chest_z);  // persist to the server
+  if (furnace_mode && open_furnace && net_active()) net_send_furnace_set(furn_x, furn_y, furn_z);
   open_chest = NULL; chest_mode = false;
+  open_furnace = NULL; furnace_mode = false;
   DisableCursor();
+}
+
+void open_furnace_at(int x, int y, int z) {   // interact.h hook
+  panel_open = true; furnace_mode = true; chest_mode = false;
+  furn_x = x; furn_y = y; furn_z = z;
+  open_furnace = furnace_at(x, y, z);
+  furnace_advance(open_furnace, GetTime());   // settle offline progress before showing
+  net_send_furnace_get(x, y, z);              // server truth arrives via SV_FURNACE
+  set_mining(false);
+  EnableCursor();
 }
 
 void ui_toggle_inventory(void) {
@@ -223,6 +277,15 @@ static CellRef hit_test(Vector2 m, float *ox, float *oy) {
     y += 16;                              // bag heading
     TRY_GRID(REF_SLOT, HOTBAR_SIZE, INV_SIZE - HOTBAR_SIZE, 9);
     TRY_GRID(REF_SLOT, 0, HOTBAR_SIZE, 9);
+  } else if (furnace_mode) {
+    Rectangle in, fuel, out; furnace_cells(panel_x, y, &in, &fuel, &out);
+    if (CheckCollisionPointRec(m, in))   { ref.kind = REF_FURN_IN;   return ref; }
+    if (CheckCollisionPointRec(m, fuel)) { ref.kind = REF_FURN_FUEL; return ref; }
+    if (CheckCollisionPointRec(m, out))  { ref.kind = REF_FURN_OUT;  return ref; }
+    y += FURN_ROWS * (CELL + GAP) + 14;
+    y += 16;                              // bag heading
+    TRY_GRID(REF_SLOT, HOTBAR_SIZE, INV_SIZE - HOTBAR_SIZE, 9);
+    TRY_GRID(REF_SLOT, 0, HOTBAR_SIZE, 9);
   } else {
     TRY_GRID(REF_SLOT, HOTBAR_SIZE, INV_SIZE - HOTBAR_SIZE, 9);
     TRY_GRID(REF_SLOT, 0, HOTBAR_SIZE, 9);
@@ -260,6 +323,27 @@ static void draw_panel(void) {
   if (chest_mode && open_chest) {
     DrawText(tr("panel.chest"), (int)panel_x, (int)y - 28, 20, WHITE);
     draw_grid(REF_CHEST, 0, CHEST_SIZE, 9, &y);
+    DrawText(tr("panel.bag"), (int)panel_x, (int)y - 8, 20, WHITE); y += 16;
+    draw_grid(REF_SLOT, HOTBAR_SIZE, INV_SIZE - HOTBAR_SIZE, 9, &y);
+    draw_grid(REF_SLOT, 0, HOTBAR_SIZE, 9, &y);
+  } else if (furnace_mode && open_furnace) {
+    FurnaceState *f = open_furnace;
+    DrawText(tr("panel.furnace"), (int)panel_x, (int)y - 28, 20, WHITE);
+    Rectangle in, fuel, out; furnace_cells(panel_x, y, &in, &fuel, &out);
+    // fire indicator between input and fuel (fills up with remaining fuel burn)
+    float bf = f->burn_max > 0 ? f->burn / f->burn_max : 0; if (bf < 0) bf = 0; if (bf > 1) bf = 1;
+    float bx = panel_x + CELL / 2.0f - 9, by = y + (CELL + GAP) + 10;
+    DrawRectangle((int)bx, (int)(by + 24 * (1 - bf)), 18, (int)(24 * bf) + 1, (Color){ 255, 140, 20, 255 });
+    // cook-progress arrow: input -> output
+    float tx = in.x + CELL + 12, ty = out.y + CELL / 2.0f - 4, tw = out.x - tx - 14;
+    DrawRectangle((int)tx, (int)ty, (int)tw, 8, (Color){ 255, 255, 255, 40 });
+    float cf = f->cook / FURNACE_COOK; if (cf < 0) cf = 0; if (cf > 1) cf = 1;
+    DrawRectangle((int)tx, (int)ty, (int)(tw * cf), 8, (Color){ 240, 200, 90, 255 });
+    DrawText(">", (int)(out.x - 18), (int)(out.y + CELL / 2 - 12), 24, WHITE);
+    draw_cell(in.x, in.y, &f->in, 0, false);
+    draw_cell(fuel.x, fuel.y, &f->fuel, 0, false);
+    draw_cell(out.x, out.y, &f->out, 0, false);
+    y += FURN_ROWS * (CELL + GAP) + 14;
     DrawText(tr("panel.bag"), (int)panel_x, (int)y - 8, 20, WHITE); y += 16;
     draw_grid(REF_SLOT, HOTBAR_SIZE, INV_SIZE - HOTBAR_SIZE, 9, &y);
     draw_grid(REF_SLOT, 0, HOTBAR_SIZE, 9, &y);
@@ -388,6 +472,15 @@ static void run_command(const char *raw) {
   } else if (!strcmp(args[0], "pig")) {
     spawn_pigs(n >= 2 ? (atoi(args[1]) > 0 ? atoi(args[1]) : 1) : 1);
     ui_chat_log(tr("cmd.pig"));
+  } else if (!strcmp(args[0], "furnace")) {   // debug: open a furnace preloaded to smelt
+    int fx = (int)floor(player.x), fy = (int)floor(player.y), fz = (int)floor(player.z);
+    FurnaceState *f = furnace_at(fx, fy, fz);
+    f->in = (Stack){ B_IRON_ORE, 5 }; f->fuel = (Stack){ I_COAL, 3 };
+    f->out = (Stack){ I_IRON_INGOT, 2 };            // preloaded so the panel shows all slots
+    f->cook = FURNACE_COOK * 0.5f; f->burn = 4.0f; f->burn_max = 8.0f;
+    f->last_t = GetTime();
+    open_furnace_at(fx, fy, fz);
+    ui_chat_log("furnace opened (5 iron ore + 3 coal)");
   } else if (!strcmp(args[0], "zombie") || !strcmp(args[0], "skeleton") || !strcmp(args[0], "creeper")) {
     int cnt = n >= 2 ? (atoi(args[1]) > 0 ? atoi(args[1]) : 1) : 1;
     spawn_mobs(args[0][0] == 'z' ? MOB_ZOMBIE : args[0][0] == 's' ? MOB_SKELETON : MOB_CREEPER, cnt);
@@ -458,6 +551,8 @@ static void run_command(const char *raw) {
 void ui_update(void) {
   if (chat_open) { update_chat(); return; }
   if (!panel_open) return;
+  // offline: the open furnace smelts live (server owns it when online)
+  if (furnace_mode && open_furnace && !net_active()) furnace_advance(open_furnace, GetTime());
   // E is handled by game_keys() in main.c (it toggles); handling it here too
   // would close the panel in the same frame it was opened.
   if (IsKeyPressed(KEY_ESCAPE)) { close_panel(); return; }

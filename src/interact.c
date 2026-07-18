@@ -86,6 +86,18 @@ void update_mining(float dt) {
         }
       }
     }
+    if (block == B_FURNACE) {                    // furnace spills its 3 slots
+      if (net_active()) net_send_furnace_break(hit[0], hit[1], hit[2]);
+      else {
+        FurnaceState *f = furnace_peek(hit[0], hit[1], hit[2]);
+        if (f) {
+          if (f->in.id)   spawn_drop(f->in.id, f->in.count, hit[0] + 0.5, hit[1], hit[2] + 0.5, 0.5f);
+          if (f->fuel.id) spawn_drop(f->fuel.id, f->fuel.count, hit[0] + 0.5, hit[1], hit[2] + 0.5, 0.5f);
+          if (f->out.id)  spawn_drop(f->out.id, f->out.count, hit[0] + 0.5, hit[1], hit[2] + 0.5, 0.5f);
+          furnace_delete(hit[0], hit[1], hit[2]);
+        }
+      }
+    }
     set_voxel(hit[0], hit[1], hit[2], B_AIR);
     net_send_edit(hit[0], hit[1], hit[2]);
     spawn_drop(drop_of(block), 1, hit[0] + 0.5, hit[1] + 0.5, hit[2] + 0.5, 0.5f);
@@ -158,6 +170,7 @@ void use_right_click(void) {
   if (raycast_voxel(6.0f, hit, prev)) {
     uint8_t b = get_voxel(hit[0], hit[1], hit[2]);
     if (b == B_CHEST) { open_chest_at(hit[0], hit[1], hit[2]); return; }
+    if (b == B_FURNACE) { open_furnace_at(hit[0], hit[1], hit[2]); return; }
     if (b == B_TNT) { prime_tnt(hit[0], hit[1], hit[2], 1.5f); return; }
   }
   Stack *s = &slots[sel_slot];

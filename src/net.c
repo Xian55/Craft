@@ -117,6 +117,27 @@ void net_send_chest_set(int x, int y, int z) {
   ws_send_bin(b, proto_enc_chest_set(b, x, (uint8_t)y, z, s));
 }
 
+void net_send_furnace_get(int x, int y, int z) {
+  if (!ws_is_open()) return;
+  uint8_t b[12];
+  ws_send_bin(b, proto_enc_chest_req(b, CL_FURNACE_GET, x, (uint8_t)y, z));
+}
+void net_send_furnace_break(int x, int y, int z) {
+  if (!ws_is_open()) return;
+  uint8_t b[12];
+  ws_send_bin(b, proto_enc_chest_req(b, CL_FURNACE_BREAK, x, (uint8_t)y, z));
+}
+void net_send_furnace_set(int x, int y, int z) {
+  if (!ws_is_open()) return;
+  FurnaceState *f = furnace_peek(x, y, z);
+  if (!f) return;
+  PSlot s[3] = { { (uint16_t)f->in.id, (uint16_t)f->in.count },
+                 { (uint16_t)f->fuel.id, (uint16_t)f->fuel.count },
+                 { (uint16_t)f->out.id, (uint16_t)f->out.count } };
+  uint8_t b[P_FURN_SET_SIZE];
+  ws_send_bin(b, proto_enc_furnace_set(b, x, (uint8_t)y, z, s));
+}
+
 void net_send_edit(int x, int y, int z) {
   if (!ws_is_open()) return;
   PEdit e = { x, z, (uint8_t)y, get_voxel(x, y, z), raw_water(x, y, z) };
@@ -337,6 +358,24 @@ static void dispatch(const uint8_t *b, size_t n) {
           arr[i].id = s[i].id;
           arr[i].count = s[i].count;
         }
+      }
+      break;
+    }
+    case SV_FURNACE: {
+      int32_t x, z; uint8_t y, flags; PFurn pf;
+      if (!proto_dec_sv_furnace(b, n, &x, &y, &z, &flags, &pf)) return;
+      if (flags & 1) {                 // broken: spill the authoritative contents
+        if (pf.in.id)   spawn_drop(pf.in.id, pf.in.count, x + 0.5, y, z + 0.5, 0.5f);
+        if (pf.fuel.id) spawn_drop(pf.fuel.id, pf.fuel.count, x + 0.5, y, z + 0.5, 0.5f);
+        if (pf.out.id)  spawn_drop(pf.out.id, pf.out.count, x + 0.5, y, z + 0.5, 0.5f);
+        furnace_delete(x, y, z);
+      } else {                         // fetched/updated: refresh the local cache
+        FurnaceState *f = furnace_at(x, y, z);
+        f->in.id = pf.in.id;     f->in.count = pf.in.count;
+        f->fuel.id = pf.fuel.id; f->fuel.count = pf.fuel.count;
+        f->out.id = pf.out.id;   f->out.count = pf.out.count;
+        f->cook = pf.cook; f->burn = pf.burn; f->burn_max = pf.burn_max;
+        f->last_t = GetTime();         // server owns actual progress; this is the display clock
       }
       break;
     }

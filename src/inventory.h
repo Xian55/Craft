@@ -63,4 +63,24 @@ Stack *chest_array_at(int x, int y, int z);       // creates if missing
 Stack *chest_array_peek(int x, int y, int z);     // NULL if none
 void   chest_delete(int x, int y, int z);
 
+// --- furnaces / smelting ---
+#define FURNACE_COOK 4.0f     // seconds to smelt one item
+// Furnace block-entity state. Progress advances lazily from a timestamp
+// (furnace_advance), so it smelts while closed and catches up any elapsed time
+// (server-sleep friendly) without a per-frame tick.
+typedef struct FurnaceState {
+  Stack  in, fuel, out;       // input (smelt), fuel, output
+  float  cook;                // 0..FURNACE_COOK: progress toward the current item
+  float  burn, burn_max;      // remaining / full burn seconds of the lit fuel
+  double last_t;              // monotonic time of the last advance
+} FurnaceState;
+
+int   smelt_result(int id);   // what `id` smelts into, 0 if not smeltable
+float fuel_burn(int id);      // seconds `id` burns as fuel, 0 if not fuel
+void  furnace_advance(FurnaceState *f, double now);   // simulate up to `now`
+
+FurnaceState *furnace_at(int x, int y, int z);        // creates if missing
+FurnaceState *furnace_peek(int x, int y, int z);      // NULL if none
+void          furnace_delete(int x, int y, int z);
+
 #endif

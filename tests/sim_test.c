@@ -91,6 +91,20 @@ int main(void) {
   CHECK(item_count(B_COBBLE) == 100 && slots[0].count == 64 && slots[1].count == 36, "stacks split at 64");
   CHECK(remove_item(B_COBBLE, 70) && item_count(B_COBBLE) == 30, "remove spans stacks");
 
+  // 9) furnace smelting: iron ore + coal -> iron ingot, timestamp advance
+  FurnaceState fur = {0};
+  fur.in = (Stack){ B_IRON_ORE, 3 };
+  fur.fuel = (Stack){ I_COAL, 1 };          // 8s burn = 2 cooks (4s each)
+  furnace_advance(&fur, 4.0);               // one item smelted
+  CHECK(fur.out.id == I_IRON_INGOT && fur.out.count == 1 && fur.in.count == 2, "furnace smelts one iron ore in 4s");
+  furnace_advance(&fur, 8.0);               // second item; coal exhausted
+  CHECK(fur.out.count == 2 && fur.in.count == 1 && fur.fuel.count == 0, "one coal smelts 2 items then runs out");
+  furnace_advance(&fur, 1000.0);            // huge elapsed but no fuel -> stalls (catch-up bounded)
+  CHECK(fur.out.count == 2 && fur.in.count == 1, "no fuel: smelting stalls, no runaway");
+  FurnaceState g = {0}; g.in = (Stack){ B_SAND, 64 }; g.fuel = (Stack){ I_COAL, 64 };
+  furnace_advance(&g, 100000.0);            // days elapsed: converges, output capped at 64
+  CHECK(g.out.id == B_GLASS && g.out.count == 64, "long catch-up smelts a full stack of glass");
+
   printf(fails ? "SIM TEST: %d FAILURES\n" : "SIM TEST: all passed\n", fails);
   return fails ? 1 : 0;
 }

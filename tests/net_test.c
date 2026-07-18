@@ -114,6 +114,29 @@ int main(void) {
         "sv_chest roundtrip (27 slots incl. empties)");
   CHECK(!proto_dec_sv_chest(svc, sizeof svc - 1, &cx, &cy, &cz2, &cfl, cs2), "truncated sv_chest rejected");
 
+  // furnace codecs (raw ids: 16=iron ore, 28=coal, 29=iron ingot)
+  n = proto_enc_chest_req(buf, CL_FURNACE_GET, 4, 30, -2);
+  hex(buf, n, h);
+  CHECK(strcmp(h, "28" "04000000" "feffffff" "1e") == 0, "GOLDEN: furnace_get(4,30,-2) bytes");
+  PSlot fs3[3] = { { 16, 5 }, { 28, 3 }, { 29, 2 } };
+  n = proto_enc_furnace_set(buf, 4, 30, -2, fs3);
+  CHECK(n == P_FURN_SET_SIZE && buf[0] == CL_FURNACE_SET, "furnace_set encodes to 22 bytes");
+  int32_t fx, fz; uint8_t fy; PSlot fs2[3];
+  CHECK(proto_dec_furnace_set(buf, n, &fx, &fy, &fz, fs2)
+        && fx == 4 && fy == 30 && fz == -2
+        && fs2[0].id == 16 && fs2[0].count == 5 && fs2[1].id == 28 && fs2[2].id == 29 && fs2[2].count == 2,
+        "furnace_set roundtrip");
+  PFurn pf = { { 16, 5 }, { 28, 3 }, { 29, 2 }, 2.0f, 4.0f, 8.0f };
+  n = proto_enc_sv_furnace(buf, 4, 30, -2, 0, &pf);
+  CHECK(n == P_SV_FURN_SIZE, "sv_furnace encodes to 35 bytes");
+  int32_t gx, gz; uint8_t gy, gfl; PFurn pf2;
+  CHECK(proto_dec_sv_furnace(buf, n, &gx, &gy, &gz, &gfl, &pf2)
+        && gx == 4 && gy == 30 && gz == -2 && gfl == 0
+        && pf2.in.id == 16 && pf2.in.count == 5 && pf2.fuel.id == 28 && pf2.out.count == 2
+        && pf2.cook == 2.0f && pf2.burn == 4.0f && pf2.burn_max == 8.0f,
+        "sv_furnace roundtrip (slots + cook/burn/burn_max)");
+  CHECK(!proto_dec_sv_furnace(buf, n - 1, &gx, &gy, &gz, &gfl, &pf2), "truncated sv_furnace rejected");
+
   // --- roundtrips ---
   n = proto_enc_hello(buf, "c-abc123");
   CHECK(n == 11 && buf[0] == CL_HELLO && buf[1] == PROTO_VER && buf[2] == 8

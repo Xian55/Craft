@@ -14,6 +14,7 @@
 // module keeps its own clock and never touches a window.
 #include "server.h"
 #include "proto.h"
+#include "inventory.h"     // FurnaceState + furnace_advance (raylib-free) — shared smelting engine
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -191,6 +192,7 @@ static char static_dir[260], data_dir[260];
 static double time_base = 0.12, time_base_at = 0;
 static double last_tick = 0;           // save/time timer (10 s)
 static double last_sweep = 0;          // heartbeat sweep (5 s, like server.js)
+static double last_furn = 0;           // furnace advance/broadcast (1 s, only while players online)
 
 static double server_time(void) {
   double v = time_base + (now_s() - time_base_at) / DAY_LEN;
@@ -233,12 +235,35 @@ static SChest *schest_find(int32_t x, uint8_t y, int32_t z, bool create) {
   return NULL;
 }
 
+// furnace block-entities: server-authoritative, advanced from now_s() (monotonic),
+// so they smelt while closed and catch up any elapsed time on the next touch/tick.
+typedef struct SFurnace { int32_t x, z; uint8_t y; FurnaceState st; bool used; } SFurnace;
+#define MAX_SFURN 1024
+static SFurnace sfurnaces[MAX_SFURN];
+static SFurnace *sfurn_find(int32_t x, uint8_t y, int32_t z, bool create) {
+  for (int i = 0; i < MAX_SFURN; i++)
+    if (sfurnaces[i].used && sfurnaces[i].x == x && sfurnaces[i].y == y && sfurnaces[i].z == z) return &sfurnaces[i];
+  if (!create) return NULL;
+  for (int i = 0; i < MAX_SFURN; i++)
+    if (!sfurnaces[i].used) {
+      memset(&sfurnaces[i], 0, sizeof sfurnaces[i]);
+      sfurnaces[i].used = true;
+      sfurnaces[i].x = x; sfurnaces[i].y = y; sfurnaces[i].z = z;
+      sfurnaces[i].st.last_t = now_s();
+      return &sfurnaces[i];
+    }
+  return NULL;
+}
+
 // ============================== persistence ==============================
 #define EDITS_MAGIC "KEDT"
 #define EDITS_VER 1
 #define CHESTS_MAGIC "KCHS"
 #define CHESTS_VER 1
 #define SCHEST_REC (9 + P_CHEST_SLOTS * 4)   // i32 x, i32 z, u8 y, 27 x (u16,u16)
+#define FURN_MAGIC "KFRN"
+#define FURN_VER 1
+#define SFURN_REC (9 + 3 * 4 + 12)           // pos + 3 slots + cook,burn,burn_max (f32); last_t not persisted
 
 static size_t encode_chests_file(uint8_t **out) {
   int count = 0;
@@ -272,6 +297,42 @@ static bool decode_chests_file(const uint8_t *b, size_t n) {
       c->slots[k].id = rd_u16le(o + 9 + k * 4);
       c->slots[k].count = rd_u16le(o + 11 + k * 4);
     }
+  }
+  return true;
+}
+
+static size_t encode_furnaces_file(uint8_t **out) {
+  int count = 0;
+  for (int i = 0; i < MAX_SFURN; i++) if (sfurnaces[i].used) count++;
+  size_t sz = 9 + (size_t)count * SFURN_REC;
+  uint8_t *b = malloc(sz);
+  memcpy(b, FURN_MAGIC, 4); b[4] = FURN_VER; wr_u32le(b + 5, (uint32_t)count);
+  size_t o = 9;
+  for (int i = 0; i < MAX_SFURN; i++) {
+    if (!sfurnaces[i].used) continue;
+    FurnaceState *s = &sfurnaces[i].st;
+    wr_i32le(b + o, sfurnaces[i].x); wr_i32le(b + o + 4, sfurnaces[i].z); b[o + 8] = sfurnaces[i].y;
+    const Stack sl[3] = { s->in, s->fuel, s->out };
+    for (int k = 0; k < 3; k++) { wr_u16le(b + o + 9 + k * 4, (uint16_t)sl[k].id); wr_u16le(b + o + 11 + k * 4, (uint16_t)sl[k].count); }
+    wr_f32le(b + o + 21, s->cook); wr_f32le(b + o + 25, s->burn); wr_f32le(b + o + 29, s->burn_max);
+    o += SFURN_REC;
+  }
+  *out = b;
+  return sz;
+}
+static bool decode_furnaces_file(const uint8_t *b, size_t n) {
+  if (n < 9 || memcmp(b, FURN_MAGIC, 4) != 0 || b[4] != FURN_VER) return false;
+  uint32_t count = rd_u32le(b + 5);
+  if (n < 9 + (size_t)count * SFURN_REC) return false;
+  for (uint32_t i = 0; i < count; i++) {
+    const uint8_t *o = b + 9 + (size_t)i * SFURN_REC;
+    SFurnace *f = sfurn_find(rd_i32le(o), o[8], rd_i32le(o + 4), true);
+    if (!f) break;
+    f->st.in.id = rd_u16le(o + 9);   f->st.in.count = rd_u16le(o + 11);
+    f->st.fuel.id = rd_u16le(o + 13); f->st.fuel.count = rd_u16le(o + 15);
+    f->st.out.id = rd_u16le(o + 17);  f->st.out.count = rd_u16le(o + 19);
+    f->st.cook = rd_f32le(o + 21); f->st.burn = rd_f32le(o + 25); f->st.burn_max = rd_f32le(o + 29);
+    f->st.last_t = now_s();          // resume from saved progress (no downtime catch-up)
   }
   return true;
 }
@@ -457,6 +518,10 @@ static void save_world(void) {
   path_join(path, sizeof path, data_dir, "chests.bin");
   ok = write_atomic(path, cb, cn) && ok;
   free(cb);
+  uint8_t *fb; size_t fn = encode_furnaces_file(&fb);
+  path_join(path, sizeof path, data_dir, "furnaces.bin");
+  ok = write_atomic(path, fb, fn) && ok;
+  free(fb);
   if (!ok) { fprintf(stderr, "save failed\n"); dirty = true; }
 }
 
@@ -493,6 +558,12 @@ static void load_world(void) {
     if (!decode_chests_file((uint8_t *)b, n)) fprintf(stderr, "chests.bin: bad magic/version or truncated - ignored\n");
     free(b);
   }
+  path_join(path, sizeof path, data_dir, "furnaces.bin");
+  b = read_file(path, &n);
+  if (b) {
+    if (!decode_furnaces_file((uint8_t *)b, n)) fprintf(stderr, "furnaces.bin: bad magic/version or truncated - ignored\n");
+    free(b);
+  }
   int np = 0; for (int i = 0; i < MAX_SAVED; i++) if (saved[i].used) np++;
   if (n_edits || np) printf("World loaded: %d edits, %d players.\n", n_edits, np);
 }
@@ -525,6 +596,23 @@ static void ws_send(SClient *c, const uint8_t *buf, size_t len) {
 static void broadcast(SClient *except, const uint8_t *buf, size_t len) {
   for (int i = 0; i < MAX_CLIENTS; i++)
     if (clients[i].used && clients[i].ws && &clients[i] != except) ws_send(&clients[i], buf, len);
+}
+
+// SV_FURNACE: send the full furnace state (bcast=true -> everyone; else just c).
+static void send_sv_furnace(SClient *c, int32_t x, uint8_t y, int32_t z,
+                            uint8_t flags, const FurnaceState *st, bool bcast) {
+  uint8_t r[P_SV_FURN_SIZE];
+  r[0] = SV_FURNACE;
+  wr_i32le(r + 1, x); wr_i32le(r + 5, z); r[9] = y; r[10] = flags;
+  const Stack sl[3] = { st->in, st->fuel, st->out };
+  for (int k = 0; k < 3; k++) { wr_u16le(r + 11 + k * 4, (uint16_t)sl[k].id); wr_u16le(r + 13 + k * 4, (uint16_t)sl[k].count); }
+  wr_f32le(r + 23, st->cook); wr_f32le(r + 27, st->burn); wr_f32le(r + 31, st->burn_max);
+  if (bcast) broadcast(NULL, r, P_SV_FURN_SIZE); else ws_send(c, r, P_SV_FURN_SIZE);
+}
+static int server_client_count(void) {
+  int n = 0;
+  for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i].used && clients[i].ws) n++;
+  return n;
 }
 
 // SV-type + sender id + client message body, verbatim (server.js encRelay)
@@ -721,6 +809,31 @@ static void handle_msg(SClient *c, const uint8_t *b, size_t n) {
       r[10] = 0;
       memcpy(r + 11, b + 10, P_CHEST_SLOTS * 4);
       broadcast(c, r, P_SV_CHEST_SIZE);
+      return;
+    }
+    case CL_FURNACE_GET: case CL_FURNACE_BREAK: {
+      if (n < 10) return;
+      int32_t x = rd_i32le(b + 1), z = rd_i32le(b + 5); uint8_t y = b[9];
+      SFurnace *fu = sfurn_find(x, y, z, false);
+      if (fu) furnace_advance(&fu->st, now_s());
+      FurnaceState empty = {0};
+      send_sv_furnace(c, x, y, z, (b[0] == CL_FURNACE_BREAK) ? 1 : 0, fu ? &fu->st : &empty, false);
+      if (b[0] == CL_FURNACE_BREAK && fu) { fu->used = false; dirty = true; }
+      return;
+    }
+    case CL_FURNACE_SET: {
+      if (n < P_FURN_SET_SIZE) return;
+      int32_t x = rd_i32le(b + 1), z = rd_i32le(b + 5); uint8_t y = b[9];
+      SFurnace *fu = sfurn_find(x, y, z, true);
+      if (!fu) return;
+      furnace_advance(&fu->st, now_s());           // apply smelting so far, then take the player's slots
+      fu->st.in.id = rd_u16le(b + 10);   fu->st.in.count = rd_u16le(b + 12);
+      fu->st.fuel.id = rd_u16le(b + 14); fu->st.fuel.count = rd_u16le(b + 16);
+      fu->st.out.id = rd_u16le(b + 18);  fu->st.out.count = rd_u16le(b + 20);
+      fu->st.last_t = now_s();
+      dirty = true;
+      if (!fu->st.in.id && !fu->st.fuel.id && !fu->st.out.id && fu->st.burn <= 0) fu->used = false;
+      send_sv_furnace(NULL, x, y, z, 0, &fu->st, true);   // correct the setter + co-viewers
       return;
     }
   }
@@ -939,6 +1052,22 @@ void server_pump(void) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
       SClient *c = &clients[i];
       if (c->used && c->ws && now - c->last_seen > HEARTBEAT_S) client_close(c);
+    }
+  }
+  // furnaces: advance + push live state to viewers, but ONLY while players are
+  // online. When empty the server sleeps (last_t frozen), so the first tick after
+  // someone joins catches up the whole elapsed span in one furnace_advance.
+  if (server_client_count() > 0 && now - last_furn >= 1.0) {
+    last_furn = now;
+    for (int i = 0; i < MAX_SFURN; i++) {
+      if (!sfurnaces[i].used) continue;
+      FurnaceState *st = &sfurnaces[i].st;
+      int before = st->out.count; float pc = st->cook, pb = st->burn;
+      furnace_advance(st, now_s());
+      if (st->cook > 0 || st->burn > 0 || pc > 0 || pb > 0 || st->out.count != before) {
+        send_sv_furnace(NULL, sfurnaces[i].x, sfurnaces[i].y, sfurnaces[i].z, 0, st, true);
+        if (st->out.count != before) dirty = true;
+      }
     }
   }
   if (now - last_tick >= SAVE_EVERY_S) { // time broadcast + save, every 10 s
