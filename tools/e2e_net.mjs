@@ -176,6 +176,35 @@ try {
   await waitFor(() => B.of(CH.SV).length > cbase, 2000);
   check(B.of(CH.SV)[cbase].readUInt16LE(11) === 0, 'broken chest is forgotten by the server');
 
+  // 4c) furnace: A loads iron ore + coal, the SERVER smelts it (over the wire) and
+  // broadcasts SV_FURNACE; break returns the contents. (ids: 16 iron ore, 28 coal,
+  // 29 iron ingot. SV_FURNACE slots at 11/15/19, cook@23.)
+  const FN = { GET: 0x28, SET: 0x2A, BREAK: 0x2C, SV: 0x29 };
+  const fpos = (t) => { const b = Buffer.alloc(10); b[0] = t; b.writeInt32LE(4, 1); b.writeInt32LE(-2, 5); b[9] = 30; return b; };
+  const fset = Buffer.alloc(22); fset[0] = FN.SET;
+  fset.writeInt32LE(4, 1); fset.writeInt32LE(-2, 5); fset[9] = 30;
+  fset.writeUInt16LE(16, 10); fset.writeUInt16LE(5, 12);   // in:   iron ore x5
+  fset.writeUInt16LE(28, 14); fset.writeUInt16LE(3, 16);   // fuel: coal x3
+  A.send(fset);
+  await sleep(5500);                          // > FURNACE_COOK (4s): server smelts >=1 ingot
+  const fb = A.of(FN.SV);
+  check(fb.length > 0, 'server broadcasts furnace state while smelting');
+  const flast = fb[fb.length - 1];
+  check(flast.readInt32LE(1) === 4 && flast[9] === 30, 'furnace broadcast has the right position');
+  check(flast.readUInt16LE(19) === 29 && flast.readUInt16LE(21) >= 1, 'SERVER smelted iron ore -> iron ingot');
+  check(flast.readUInt16LE(11) === 16 && flast.readUInt16LE(13) < 5, 'input iron ore consumed by smelting');
+  let fbase = A.of(FN.SV).length;
+  A.send(fpos(FN.BREAK));
+  await waitFor(() => A.of(FN.SV).length > fbase, 2000);
+  const fbrk = A.of(FN.SV)[fbase];
+  check(fbrk[10] === 1 && (fbrk.readUInt16LE(11) !== 0 || fbrk.readUInt16LE(19) !== 0),
+    'furnace break returns contents with the broken flag');
+  fbase = A.of(FN.SV).length;
+  A.send(fpos(FN.GET));
+  await waitFor(() => A.of(FN.SV).length > fbase, 2000);
+  check(A.of(FN.SV)[fbase].readUInt16LE(11) === 0 && A.of(FN.SV)[fbase].readUInt16LE(19) === 0,
+    'broken furnace is forgotten by the server');
+
   // 5) SAVE -> reconnect -> RESTORE with the same state
   const save = Buffer.alloc(164); save[0] = CL.SAVE;
   save.writeFloatLE(11, 1); save.writeFloatLE(22, 5); save.writeFloatLE(33, 9); save.writeFloatLE(0.7, 13);
