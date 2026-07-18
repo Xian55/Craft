@@ -29,9 +29,13 @@ static Matrix cube_transform(void) {
 static void draw_item_quad(int id) {
   Texture2D items = entities_items_tex();
   int tile = item_tile(id);
-  if (items.id == 0 || tile < 0) return;
-  float u0 = (tile % 4) / 4.0f, u1 = u0 + 0.25f;
-  float v0 = (tile / 4) / 4.0f, v1 = v0 + 0.25f;   // v0 = top of the tile
+  if (items.id == 0 || tile < 0 || items.width <= 0 || items.height <= 0) return;
+  // tile UV from the ACTUAL texture size (items.png grew to 6 rows for the new
+  // items — a hardcoded /4 rows sampled the wrong V for torch/bucket/tools).
+  int cols = items.width / 64;
+  float tw = 64.0f / items.width, th = 64.0f / items.height;
+  float u0 = (tile % cols) * tw, u1 = u0 + tw;
+  float v0 = (tile / cols) * th, v1 = v0 + th;   // v0 = top of the tile
 
   rlPushMatrix();
   rlTranslatef(0.55f, -0.5f, -0.9f);
