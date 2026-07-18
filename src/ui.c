@@ -475,11 +475,9 @@ static void run_command(const char *raw) {
   } else if (!strcmp(args[0], "furnace")) {   // debug: open a furnace preloaded to smelt
     int fx = (int)floor(player.x), fy = (int)floor(player.y), fz = (int)floor(player.z);
     FurnaceState *f = furnace_at(fx, fy, fz);
-    f->in = (Stack){ B_IRON_ORE, 5 }; f->fuel = (Stack){ I_COAL, 3 };
-    f->out = (Stack){ I_IRON_INGOT, 2 };            // preloaded so the panel shows all slots
-    f->cook = FURNACE_COOK * 0.5f; f->burn = 4.0f; f->burn_max = 8.0f;
-    f->last_t = GetTime();
+    *f = (FurnaceState){ .in = { B_IRON_ORE, 5 }, .fuel = { I_COAL, 3 }, .last_t = GetTime() };
     open_furnace_at(fx, fy, fz);
+    net_send_furnace_set(fx, fy, fz);   // online: hand the preload to the server so it smelts it
     ui_chat_log("furnace opened (5 iron ore + 3 coal)");
   } else if (!strcmp(args[0], "zombie") || !strcmp(args[0], "skeleton") || !strcmp(args[0], "creeper")) {
     int cnt = n >= 2 ? (atoi(args[1]) > 0 ? atoi(args[1]) : 1) : 1;
