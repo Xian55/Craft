@@ -476,17 +476,23 @@ static bool mob_collides(double px, double py, double pz) {
 // night window of the shared clock (0.25 noon, 0.75 midnight)
 static bool is_night(void) { return day_time > 0.55 && day_time < 0.95; }
 
-void spawn_mobs(int type, int n) {
-  if (!authority) return;            // mirrors get their mobs from the wire
+int spawn_mobs(int type, int n) {
+  if (!authority) return 0;          // mirrors get their mobs from the wire
+  int made = 0;
   for (int k = 0; k < n; k++) {
     float x, y, z; spawn_near_player(&x, &y, &z);
     for (int i = 0; i < MAX_MOBS; i++)
       if (!mobs[i].used) {
-        mobs[i] = (Mob){ x, y, z, 0,
-                         (float)GetRandomValue(0, 628) / 100.0f, 0, 0, 0, -1, 20, type, true };
+        // designated init: the Mob struct grew (tx/ty/tz + netflags for mirror
+        // mode), so positional order is fragile — name the fields we set
+        mobs[i] = (Mob){ .x = x, .y = y, .z = z,
+                         .heading = (float)GetRandomValue(0, 628) / 100.0f,
+                         .fuse = -1, .health = 20, .type = type, .used = true };
+        made++;
         break;
       }
   }
+  return made;
 }
 
 int mob_count(void) { int c = 0; for (int i = 0; i < MAX_MOBS; i++) if (mobs[i].used) c++; return c; }

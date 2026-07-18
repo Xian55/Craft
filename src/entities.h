@@ -27,7 +27,7 @@ int  pig_count(void);
 // Spawn at night near the player, burn away in daylight. Client-local
 // (like pigs — not synced over the wire).
 enum { MOB_ZOMBIE, MOB_SKELETON, MOB_CREEPER };
-void spawn_mobs(int type, int n);
+int spawn_mobs(int type, int n);   // returns count actually spawned (0 if not authority)
 void update_mobs(float dt);               // AI + arrows + night spawner
 int  mob_count(void);
 bool attack_creature(void);               // LMB: true if a mob or pig was hit
