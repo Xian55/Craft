@@ -13,5 +13,6 @@ float mine_progress01(void);           // 0..1 for the HUD progress bar (<0 = id
 
 // chest UI hook (implemented in ui.c)
 void open_chest_at(int x, int y, int z);
+void open_furnace_at(int x, int y, int z);
 
 #endif

@@ -39,6 +39,7 @@ hud.held_empty=Kezben: - (ures rekesz)
 hint.click=Katt: jatek | WASD mozgas, Szokoz ugras, E taska, T chat, F eves, Q eldobas
 
 panel.chest=Lada
+panel.furnace=Kemence
 panel.bag=Taska
 panel.craft=Barkacsolas (3x3)
 panel.hint=Bal katt: egesz kupac. Jobb katt: felezes/egyesevel. Bezaras: E

@@ -24,6 +24,9 @@
 #define CL_CHEST_GET   0x22
 #define CL_CHEST_SET   0x24
 #define CL_CHEST_BREAK 0x26
+#define CL_FURNACE_GET   0x28
+#define CL_FURNACE_SET   0x2A
+#define CL_FURNACE_BREAK 0x2C
 #define CL_PING    0x40
 // server -> client
 #define SV_WELCOME 0x02
@@ -39,6 +42,7 @@
 #define SV_MOB_HIT 0x1F
 #define SV_RESTORE 0x21
 #define SV_CHEST   0x23
+#define SV_FURNACE 0x29
 #define SV_LEAVE   0x30
 #define SV_MASTER  0x32
 #define SV_PONG    0x41
@@ -65,6 +69,15 @@ typedef struct PArrow { float x, y, z; } PArrow;
 #define P_CHEST_SET_SIZE (1 + 9 + P_CHEST_SLOTS * 4)   // 118
 #define P_SV_CHEST_SIZE  (1 + 9 + 1 + P_CHEST_SLOTS * 4) // 119
 typedef struct PSlot { uint16_t id, count; } PSlot;
+
+// furnace block-entity: 3 slots (in/fuel/out). CL_FURNACE_SET carries only the
+// slots (player-editable); the server owns cook/burn and sends the full state
+// in SV_FURNACE (flags bit0 = broken -> spill contents as drops).
+#define P_FURN_SLOTS 3
+#define P_FURN_SET_SIZE (1 + 9 + P_FURN_SLOTS * 4)               // 22
+#define P_SV_FURN_SIZE  (1 + 9 + 1 + P_FURN_SLOTS * 4 + 12)      // 35: +cook,burn,burn_max (f32)
+typedef struct PFurn { PSlot in, fuel, out; float cook, burn, burn_max; } PFurn;
+
 typedef struct PState {
   float x, y, z, yaw;
   uint8_t health, hunger, sel_slot;
@@ -85,6 +98,9 @@ size_t proto_enc_boom(uint8_t *b, int32_t x, uint8_t y, int32_t z);          // 
 size_t proto_enc_mob_hit(uint8_t *b, uint8_t slot, uint8_t dmg, float kx, float kz); // 11
 size_t proto_enc_chest_req(uint8_t *b, uint8_t type, int32_t x, uint8_t y, int32_t z); // GET/BREAK, 10
 size_t proto_enc_chest_set(uint8_t *b, int32_t x, uint8_t y, int32_t z, const PSlot *s);
+// furnace GET/BREAK reuse proto_enc_chest_req (type distinguishes). SET carries 3 slots.
+size_t proto_enc_furnace_set(uint8_t *b, int32_t x, uint8_t y, int32_t z, const PSlot *s3); // 22
+size_t proto_enc_sv_furnace(uint8_t *b, int32_t x, uint8_t y, int32_t z, uint8_t flags, const PFurn *f); // 35
 
 // decoders return false if the buffer is too short
 bool proto_dec_welcome(const uint8_t *b, size_t n, uint8_t *ver, uint32_t *id, float *time);
@@ -108,5 +124,8 @@ bool proto_dec_sv_mob_hit(const uint8_t *b, size_t n, uint32_t *id,
 bool proto_dec_master(const uint8_t *b, size_t n, bool *is_master);
 bool proto_dec_sv_chest(const uint8_t *b, size_t n, int32_t *x, uint8_t *y, int32_t *z,
                         uint8_t *flags, PSlot *s);
+bool proto_dec_furnace_set(const uint8_t *b, size_t n, int32_t *x, uint8_t *y, int32_t *z, PSlot *s3);
+bool proto_dec_sv_furnace(const uint8_t *b, size_t n, int32_t *x, uint8_t *y, int32_t *z,
+                          uint8_t *flags, PFurn *f);
 
 #endif
