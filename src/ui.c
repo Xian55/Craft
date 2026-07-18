@@ -481,8 +481,16 @@ static void run_command(const char *raw) {
     ui_chat_log("furnace opened (5 iron ore + 3 coal)");
   } else if (!strcmp(args[0], "zombie") || !strcmp(args[0], "skeleton") || !strcmp(args[0], "creeper")) {
     int cnt = n >= 2 ? (atoi(args[1]) > 0 ? atoi(args[1]) : 1) : 1;
-    spawn_mobs(args[0][0] == 'z' ? MOB_ZOMBIE : args[0][0] == 's' ? MOB_SKELETON : MOB_CREEPER, cnt);
-    ui_chat_log(TextFormat(tr("cmd.mob"), cnt));
+    int type = args[0][0] == 'z' ? MOB_ZOMBIE : args[0][0] == 's' ? MOB_SKELETON : MOB_CREEPER;
+    int made = spawn_mobs(type, cnt);
+    if (made == 0) {
+      ui_chat_log(tr("cmd.mob_nohost"));   // online: another client owns the mobs
+    } else {
+      ui_chat_log(TextFormat(tr("cmd.mob"), made));
+      // zombie/skeleton burn in daylight (is_night window = day_time in 0.55..0.95)
+      if (type != MOB_CREEPER && (day_time <= 0.55 || day_time >= 0.95))
+        ui_chat_log(tr("cmd.mob_daylight"));
+    }
   } else if (!strcmp(args[0], "creative")) {
     creative = true; ui_chat_log(tr("cmd.creative"));
   } else if (!strcmp(args[0], "survival")) {
